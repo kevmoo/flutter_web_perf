@@ -83,7 +83,6 @@ Future<void> runApp(List<String> arguments) async {
         : '$buildPath/main.dart.js.map';
 
     final analyzer = TraceAnalyzer(file.path, sourceMapPath: mapPath);
-    await analyzer.analyze();
 
     final symbolicatedProfile = await symbolicateProfile(
       profilePath: profileFile.path,
@@ -94,7 +93,33 @@ Future<void> runApp(List<String> arguments) async {
     await symbolicatedFile.writeAsString(json.encode(symbolicatedProfile));
     print('Saved symbolicated profile to ${symbolicatedFile.absolute.path}');
 
-    await analyzer.analyzeProfile('profile_symbolicated.json');
+    final report = await analyzer.generateReport(
+      profilePath: symbolicatedFile.path,
+    );
+
+    print('\n=== Performance Report Summary ===');
+    print(
+      'Average Frame Interval: '
+      '${report.frameHealth.avgIntervalMs?.toStringAsFixed(2)} ms',
+    );
+    print(
+      'Average Frame Work Duration: '
+      '${report.frameHealth.avgWorkMs?.toStringAsFixed(2)} ms',
+    );
+    print('Drop Rate: ${report.frameHealth.dropRate.toStringAsFixed(2)}%');
+    print('Requested Frames: ${report.frameHealth.requestedCount}');
+    print('Processed Frames: ${report.frameHealth.processedCount}');
+
+    print('\n=== Time Breakdown ===');
+    report.timeBreakdown.forEach((cat, dur) {
+      print('$cat: ${dur.toStringAsFixed(2)} ms');
+    });
+
+    print('\n=== Top 10 Hot Functions ===');
+    for (var i = 0; i < report.hotFunctions.length; i++) {
+      final f = report.hotFunctions[i];
+      print('${i + 1}. ${f.name}: ${f.samples} samples');
+    }
   } catch (e) {
     print('Error: $e');
   } finally {

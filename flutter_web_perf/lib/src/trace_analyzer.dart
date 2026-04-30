@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'dart:io';
 import 'package:path/path.dart' as p;
+import 'performance_report.dart';
 import 'profile_model.dart';
 
 class TraceAnalyzer {
@@ -17,18 +18,18 @@ class TraceAnalyzer {
   static const String defaultTraceProcessorPath =
       '/Users/kevmoo/github/perfetto/out/default/trace_processor_shell';
 
-  Future<void> analyze({String? traceProcessorPath}) async {
+  Future<PerformanceReport> generateReport({
+    String? traceProcessorPath,
+    required String profilePath,
+  }) async {
     final tpPath = traceProcessorPath ?? defaultTraceProcessorPath;
     final tpFile = File(tpPath);
     if (!await tpFile.exists()) {
-      print('Trace Processor not found at: $tpPath');
-      print('Skipping advanced analysis.');
-      return;
+      throw Exception('Trace Processor not found at: $tpPath');
     }
 
     print('Analyzing trace using Trace Processor...');
 
-    // Query for Frame Health
     final frameHealthQuery = '''
       WITH frame_times AS (
         SELECT ts,
@@ -43,7 +44,6 @@ class TraceAnalyzer {
         (SELECT COUNT(*) FROM slice WHERE name = 'AnimationFrame') AS processed_count;
     ''';
 
-    // Query for Advanced Metrics (Breakdown)
     final breakdownQuery = '''
       SELECT 
         CASE 
@@ -55,59 +55,81 @@ class TraceAnalyzer {
         SUM(dur) / 1000000.0 AS total_dur_ms
       FROM slice
       WHERE name LIKE '%Script::Execute%' OR name LIKE '%Render%' OR name LIKE '%GC%' OR cat LIKE '%gc%'
-      GROUP BY category;
+      GROUP BY 1;
     ''';
 
     final tempDir = await Directory.systemTemp.createTemp('query_');
     final qFile = File(p.join(tempDir.path, 'query.sql'));
 
+    FrameHealth? frameHealth;
+    final breakdown = <String, double>{};
+
     try {
-      // Run frame health query
+      // 1. Run frame health query
       await qFile.writeAsString(frameHealthQuery);
       final result = await Process.run(tpPath, [tracePath, '-q', qFile.path]);
 
       if (result.exitCode != 0) {
-        print('Failed to run Trace Processor: ${result.stderr}');
-        return;
+        throw Exception('Failed to run Trace Processor: ${result.stderr}');
       }
 
-      print('\n=== Frame Health (via Trace Processor) ===');
-      var lines = result.stdout.toString().split('\n');
-      for (final line in lines) {
-        if (line.startsWith('"') || line.contains(',')) {
-          print(line);
+      final lines = result.stdout.toString().split('\n');
+      for (var i = 0; i < lines.length; i++) {
+        if (lines[i].startsWith('"avg_interval_ms"')) {
+          if (i + 1 < lines.length) {
+            final data = lines[i + 1].split(',');
+            frameHealth = FrameHealth(
+              avgIntervalMs: double.tryParse(data[0]),
+              avgWorkMs: double.tryParse(data[1]),
+              requestedCount: int.tryParse(data[2]) ?? 0,
+              processedCount: int.tryParse(data[3]) ?? 0,
+            );
+          }
+          break;
         }
       }
 
-      // Run breakdown query
+      // 2. Run breakdown query
       await qFile.writeAsString(breakdownQuery);
       final result2 = await Process.run(tpPath, [tracePath, '-q', qFile.path]);
 
       if (result2.exitCode != 0) {
-        print('Failed to run Trace Processor for breakdown: ${result2.stderr}');
-        return;
+        throw Exception(
+          'Failed to run Trace Processor for breakdown: ${result2.stderr}',
+        );
       }
 
-      print('\n=== Time Breakdown (via Trace Processor) ===');
-      lines = result2.stdout.toString().split('\n');
-      for (final line in lines) {
-        if (line.startsWith('"') || line.contains(',')) {
-          print(line);
+      final lines2 = result2.stdout.toString().split('\n');
+      for (var i = 0; i < lines2.length; i++) {
+        if (lines2[i].startsWith('"category"')) {
+          for (var j = i + 1; j < lines2.length; j++) {
+            final line = lines2[j];
+            if (line.isEmpty) continue;
+            final data = line.split(',');
+            if (data.length == 2) {
+              final cat = data[0].replaceAll('"', '');
+              final dur = double.tryParse(data[1]) ?? 0.0;
+              breakdown[cat] = dur;
+            }
+          }
+          break;
         }
       }
     } finally {
       await tempDir.delete(recursive: true);
     }
-  }
 
-  Future<void> analyzeProfile(String profilePath) async {
-    final file = File(profilePath);
-    if (!await file.exists()) {
-      print('Profile file not found: $profilePath');
-      return;
+    if (frameHealth == null) {
+      throw Exception('Failed to parse frame health data from Trace Processor');
     }
 
-    final content = await file.readAsString();
+    // 3. Analyze Profile
+    final profileFile = File(profilePath);
+    if (!await profileFile.exists()) {
+      throw Exception('Profile file not found: $profilePath');
+    }
+
+    final content = await profileFile.readAsString();
     final profile = CpuProfile.fromJson(
       json.decode(content) as Map<String, dynamic>,
     );
@@ -117,14 +139,14 @@ class TraceAnalyzer {
       nodeCounts[sample] = (nodeCounts[sample] ?? 0) + 1;
     }
 
-    // Map node ID to node object for easy lookup
     final nodeMap = <int, CpuProfileNode>{};
     for (final node in profile.nodes) {
       nodeMap[node.id] = node;
     }
 
-    // Aggregate by function name
     final functionCounts = <String, int>{};
+    final functionUrls = <String, String>{}; // Map function key to URL
+
     nodeCounts.forEach((nodeId, count) {
       final node = nodeMap[nodeId];
       if (node != null) {
@@ -132,25 +154,37 @@ class TraceAnalyzer {
         final functionName = frame.functionName;
         final url = frame.url;
 
-        var key = '$functionName ($url)';
-        // TODO: be exhaustive about the canvaskit variants here.
-        // We have skwasm, etc etc
+        var key = functionName;
         if (!expandCanvaskitFrames &&
             (url.contains('canvaskit.wasm') || url.contains('skwasm.wasm'))) {
           key = 'CanvasKit Wasm (collapsed)';
         }
 
         functionCounts[key] = (functionCounts[key] ?? 0) + count;
+        functionUrls[key] = url;
       }
     });
 
     final sortedFunctions = functionCounts.entries.toList()
       ..sort((a, b) => b.value.compareTo(a.value));
 
-    print('\n=== Top 10 Hot Functions (from Profile) ===');
+    final hotFunctions = <HotFunction>[];
     for (var i = 0; i < 10 && i < sortedFunctions.length; i++) {
       final entry = sortedFunctions[i];
-      print('${i + 1}. ${entry.key}: ${entry.value} samples');
+      hotFunctions.add(
+        HotFunction(
+          name: entry.key,
+          url: functionUrls[entry.key] ?? '',
+          samples: entry.value,
+        ),
+      );
     }
+
+    return PerformanceReport(
+      frameHealth: frameHealth,
+      timeBreakdown: breakdown,
+      slowTasks: [], // TODO: Add slow tasks query if needed
+      hotFunctions: hotFunctions,
+    );
   }
 }
