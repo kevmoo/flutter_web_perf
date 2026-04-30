@@ -36,7 +36,8 @@ Future<void> runApp(List<String> arguments) async {
     await file.writeAsString(json.encode(events));
     print('Saved trace data to ${file.absolute.path}');
 
-    final analyzer = TraceAnalyzer(file.path);
+    final mapPath = '../sample_app/build/web/main.dart.js.map';
+    final analyzer = TraceAnalyzer(file.path, sourceMapPath: mapPath);
     await analyzer.analyze();
   } catch (e) {
     print('Error: $e');

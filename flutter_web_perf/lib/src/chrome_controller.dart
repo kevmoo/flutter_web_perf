@@ -17,7 +17,7 @@ class ChromeController {
       '--remote-debugging-port=9222',
       '--headless', // Remove if we want to see it
       '--disable-gpu',
-      url,
+      'about:blank', // Start with blank page
     ]);
 
     // Wait for Chrome to start and open the port with retries
@@ -42,6 +42,27 @@ class ChromeController {
 
     _connection = await WipConnection.connect(wsUrl);
     print('Connected to Chrome!');
+
+    // Enable Debugger domain to see script events
+    await _connection?.sendCommand('Debugger.enable');
+
+    _connection?.onNotification.listen((notification) {
+      if (notification.method == 'Debugger.scriptParsed') {
+        final params = notification.params as Map<String, dynamic>;
+        final url = params['url'] as String;
+        final sourceMapURL = params['sourceMapURL'] as String?;
+        if (url.contains('main.dart.js')) {
+          print('Found main.dart.js! SourceMap URL: $sourceMapURL');
+        }
+      }
+    });
+
+    // Enable Page domain
+    await _connection?.sendCommand('Page.enable');
+
+    // Navigate to the target URL after setting up listeners
+    await _connection?.sendCommand('Page.navigate', {'url': url});
+    print('Navigated to $url');
   }
 
   Future<void> startTracing() async {
