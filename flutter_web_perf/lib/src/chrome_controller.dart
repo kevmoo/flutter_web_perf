@@ -98,6 +98,18 @@ class ChromeController {
     return completer.future;
   }
 
+  Future<void> startProfiling() async {
+    await _connection?.sendCommand('Profiler.enable');
+    await _connection?.sendCommand('Profiler.start');
+    print('Profiler started.');
+  }
+
+  Future<Map<String, dynamic>> stopProfiling() async {
+    final response = await _connection?.sendCommand('Profiler.stop');
+    print('Profiler stopped.');
+    return response!.result!['profile'] as Map<String, dynamic>;
+  }
+
   Future<void> stop() async {
     await _connection?.close();
     _chromeProcess?.kill();

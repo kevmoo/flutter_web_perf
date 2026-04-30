@@ -131,5 +131,82 @@ class TraceAnalyzer {
         }
       }
     }
+
+    // 4. Search for package: URIs in all events
+    print('\n=== Non-SDK Mapped Locations (First 20) ===');
+    var printedCount = 0;
+    final seenUrls = <String>{};
+
+    for (final e in events) {
+      final args = e['args'];
+      if (args != null && args['data'] != null) {
+        final data = args['data'] as Map<String, dynamic>;
+        final line = data['lineNumber'] as int?;
+        final column = data['columnNumber'] as int?;
+
+        if (line != null && column != null && mapping != null) {
+          final span = mapping.spanFor(line, column);
+          if (span != null) {
+            final url = span.sourceUrl.toString();
+            if (!url.contains('org-dartlang-sdk:///')) {
+              if (seenUrls.add(url)) {
+                print('  -> $url');
+                printedCount++;
+                if (printedCount >= 20) break;
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+
+  Future<void> analyzeProfile(String profilePath) async {
+    final file = File(profilePath);
+    if (!await file.exists()) {
+      print('Profile file not found: $profilePath');
+      return;
+    }
+
+    final content = await file.readAsString();
+    final profile = json.decode(content) as Map<String, dynamic>;
+
+    final nodes = profile['nodes'] as List;
+    final samples = profile['samples'] as List;
+
+    final nodeCounts = <int, int>{};
+    for (final sample in samples) {
+      final nodeId = sample as int;
+      nodeCounts[nodeId] = (nodeCounts[nodeId] ?? 0) + 1;
+    }
+
+    // Map node ID to node object for easy lookup
+    final nodeMap = <int, Map<String, dynamic>>{};
+    for (final node in nodes) {
+      final id = node['id'] as int;
+      nodeMap[id] = node as Map<String, dynamic>;
+    }
+
+    // Aggregate by function name
+    final functionCounts = <String, int>{};
+    nodeCounts.forEach((nodeId, count) {
+      final node = nodeMap[nodeId];
+      if (node != null) {
+        final callFrame = node['callFrame'] as Map<String, dynamic>;
+        final functionName = callFrame['functionName'] as String;
+        final url = callFrame['url'] as String;
+        final key = '$functionName ($url)';
+        functionCounts[key] = (functionCounts[key] ?? 0) + count;
+      }
+    });
+
+    final sortedFunctions = functionCounts.entries.toList()
+      ..sort((a, b) => b.value.compareTo(a.value));
+
+    print('\n=== Top 10 Hot Functions (from Profile) ===');
+    for (var i = 0; i < 10 && i < sortedFunctions.length; i++) {
+      final entry = sortedFunctions[i];
+      print('${i + 1}. ${entry.key}: ${entry.value} samples');
+    }
   }
 }
