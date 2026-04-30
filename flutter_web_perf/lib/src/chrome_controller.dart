@@ -2,29 +2,55 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'package:http/http.dart' as http;
+import 'package:path/path.dart' as p;
 import 'package:webkit_inspection_protocol/webkit_inspection_protocol.dart';
 
 class ChromeController {
   Process? _chromeProcess;
   WipConnection? _connection;
+  Directory? _tempDir;
 
   Future<void> start(String url) async {
     // TODO: Find Chrome executable path portably
     final chromePath =
         '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome'; // Hardcoded for Mac for now
 
+    _tempDir = await Directory.systemTemp.createTemp('chrome_profile_');
+
     _chromeProcess = await Process.start(chromePath, [
-      '--remote-debugging-port=9222',
+      '--remote-debugging-port=0', // Use dynamic port
       '--headless', // Remove if we want to see it
       '--disable-gpu',
+      '--user-data-dir=${_tempDir!.path}',
       'about:blank', // Start with blank page
     ]);
 
-    // Wait for Chrome to start and open the port with retries
+    final activePortFile = File(p.join(_tempDir!.path, 'DevToolsActivePort'));
+
+    // Wait for file to exist
+    var attempts = 0;
+    while (!await activePortFile.exists() && attempts < 20) {
+      await Future.delayed(const Duration(milliseconds: 100));
+      attempts++;
+    }
+
+    if (!await activePortFile.exists()) {
+      throw Exception('Failed to find DevToolsActivePort file.');
+    }
+
+    final lines = await activePortFile.readAsLines();
+    if (lines.isEmpty) {
+      throw Exception('DevToolsActivePort file is empty.');
+    }
+
+    final port = int.parse(lines[0]);
+    print('Chrome listening on dynamic port: $port');
+
+    // Wait for Chrome to be ready on the new port with retries
     http.Response? response;
     for (var i = 0; i < 10; i++) {
       try {
-        response = await http.get(Uri.parse('http://localhost:9222/json'));
+        response = await http.get(Uri.parse('http://localhost:$port/json'));
         if (response.statusCode == 200) break;
       } catch (_) {
         // Ignore and retry
@@ -113,5 +139,8 @@ class ChromeController {
   Future<void> stop() async {
     await _connection?.close();
     _chromeProcess?.kill();
+    // Wait for process to exit to release file locks
+    await _chromeProcess?.exitCode;
+    await _tempDir?.delete(recursive: true);
   }
 }

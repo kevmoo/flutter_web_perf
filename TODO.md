@@ -64,10 +64,17 @@ Here are some ideas on how we can approach building this tool, breaking it down 
 - **Wasm Specifics**: Profiling Wasm requires mapping machine addresses back to source code. We might need to parse the DWARF info or rely on Chrome's built-in Wasm profiling capabilities via CDP.
 
 ### 4. Next Steps / Action Items
-- [ ] Create a reproduction/sample Flutter Web app to test against.
-- [ ] Scaffold a basic Dart CLI app.
-- [ ] Experiment with launching Chrome via CDP and capturing basic trace events.
-- [ ] Investigate what timing signals Flutter Web naturally exposes to the browser.
+- [x] Create a reproduction/sample Flutter Web app to test against.
+- [x] Scaffold a basic Dart CLI app.
+- [x] Experiment with launching Chrome via CDP and capturing basic trace events.
+- [x] Investigate what timing signals Flutter Web naturally exposes to the browser (used `AnimationFrame` and `BeginFrame`).
+
+### 5. Future Work & Refinement
+- [x] **Dynamic Ports**: Avoid hardcoded port 9222 for Chrome to prevent conflicts in parallel runs.
+- [ ] **Advanced Metrics**: Break down frame time into Scripting vs Rendering vs GC.
+- [ ] **HTML Reporter**: Create a stunning, interactive HTML report instead of just console output.
+- [ ] **CLI Polish**: Add options for profiling duration, output paths, and custom build flags.
+- [ ] **CanvasKit Mapping**: Investigate if we can symbolicate `wasm-function[...]` names if we have debug builds of CanvasKit.
 
 ## Stats to collect and display
 

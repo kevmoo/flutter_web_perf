@@ -204,7 +204,8 @@ class TraceAnalyzer {
         var key = '$functionName ($url)';
         // TODO: be exhaustive about the canvaskit variants here.
         // We have skwasm, etc etc
-        if (!expandCanvaskitFrames && url.contains('canvaskit.wasm')) {
+        if (!expandCanvaskitFrames &&
+            (url.contains('canvaskit.wasm') || url.contains('skwasm.wasm'))) {
           key = 'CanvasKit Wasm (collapsed)';
         }
 

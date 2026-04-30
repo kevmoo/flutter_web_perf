@@ -6,19 +6,51 @@ import 'server.dart';
 import 'trace_analyzer.dart';
 import 'profile_symbolicator.dart';
 
-Future<void> runApp(List<String> arguments) async {
-  final parser = ArgParser();
-  // Add options here later
+enum CompileTarget { js, wasm }
 
-  parser.parse(arguments);
+Future<void> runApp(List<String> arguments) async {
+  final parser = ArgParser()
+    ..addOption(
+      'target',
+      abbr: 't',
+      allowed: ['js', 'wasm'],
+      defaultsTo: 'js',
+      help: 'The compile target for the web app.',
+    );
+
+  final results = parser.parse(arguments);
+  final targetStr = results['target'] as String;
+  final target = targetStr == 'wasm' ? CompileTarget.wasm : CompileTarget.js;
+
   print('Hello from flutter_web_perf tool!');
+  print('Target: $targetStr');
+
+  // 1. Build the app
+  final appDir = '../sample_app';
+  print('Building app in $appDir...');
+  final buildArgs = ['build', 'web', '--source-maps'];
+  if (target == CompileTarget.wasm) {
+    buildArgs.add('--wasm');
+  }
+
+  final buildResult = await Process.run(
+    'flutter',
+    buildArgs,
+    workingDirectory: appDir,
+  );
+  if (buildResult.exitCode != 0) {
+    print('Build failed!');
+    print(buildResult.stderr);
+    exitCode = buildResult.exitCode;
+    return;
+  }
+  print('Build successful.');
 
   final server = DevServer();
   final controller = ChromeController();
 
   try {
-    // TODO: Use path from arguments or default to sample_app
-    final buildPath = '../sample_app/build/web';
+    final buildPath = '$appDir/build/web';
     final port = await server.start(buildPath);
     final url = 'http://localhost:$port';
 
@@ -44,7 +76,10 @@ Future<void> runApp(List<String> arguments) async {
     await profileFile.writeAsString(json.encode(profile));
     print('Saved profile data to ${profileFile.absolute.path}');
 
-    final mapPath = '../sample_app/build/web/main.dart.js.map';
+    final mapPath = target == CompileTarget.wasm
+        ? '$buildPath/main.dart.wasm.map'
+        : '$buildPath/main.dart.js.map';
+
     final analyzer = TraceAnalyzer(file.path, sourceMapPath: mapPath);
     await analyzer.analyze();
 
