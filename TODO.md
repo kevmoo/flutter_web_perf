@@ -71,7 +71,7 @@ Here are some ideas on how we can approach building this tool, breaking it down 
 
 ### 5. Future Work & Refinement
 - [x] **Dynamic Ports**: Avoid hardcoded port 9222 for Chrome to prevent conflicts in parallel runs.
-- [ ] **Advanced Metrics**: Break down frame time into Scripting vs Rendering vs GC.
+- [x] **Advanced Metrics**: Break down frame time into Scripting vs Rendering vs GC.
 - [ ] **HTML Reporter**: Create a stunning, interactive HTML report instead of just console output.
 - [ ] **CLI Polish**: Add options for profiling duration, output paths, and custom build flags.
 - [ ] **CanvasKit Mapping**: Investigate if we can symbolicate `wasm-function[...]` names if we have debug builds of CanvasKit.

@@ -43,25 +43,60 @@ class TraceAnalyzer {
         (SELECT COUNT(*) FROM slice WHERE name = 'AnimationFrame') AS processed_count;
     ''';
 
+    // Query for Advanced Metrics (Breakdown)
+    final breakdownQuery = '''
+      SELECT 
+        CASE 
+          WHEN name LIKE '%Script::Execute%' THEN 'Scripting'
+          WHEN name LIKE '%Render%' THEN 'Rendering'
+          WHEN name LIKE '%GC%' OR cat LIKE '%gc%' THEN 'GC'
+          ELSE 'Other'
+        END AS category,
+        SUM(dur) / 1000000.0 AS total_dur_ms
+      FROM slice
+      WHERE name LIKE '%Script::Execute%' OR name LIKE '%Render%' OR name LIKE '%GC%' OR cat LIKE '%gc%'
+      GROUP BY category;
+    ''';
+
     final tempDir = await Directory.systemTemp.createTemp('query_');
     final qFile = File(p.join(tempDir.path, 'query.sql'));
-    await qFile.writeAsString(frameHealthQuery);
 
-    final result = await Process.run(tpPath, [tracePath, '-q', qFile.path]);
-    await tempDir.delete(recursive: true);
+    try {
+      // Run frame health query
+      await qFile.writeAsString(frameHealthQuery);
+      final result = await Process.run(tpPath, [tracePath, '-q', qFile.path]);
 
-    if (result.exitCode != 0) {
-      print('Failed to run Trace Processor: ${result.stderr}');
-      return;
-    }
-
-    print('\n=== Frame Health (via Trace Processor) ===');
-    // Simple parsing of CSV output
-    final lines = result.stdout.toString().split('\n');
-    for (final line in lines) {
-      if (line.startsWith('"') || line.contains(',')) {
-        print(line);
+      if (result.exitCode != 0) {
+        print('Failed to run Trace Processor: ${result.stderr}');
+        return;
       }
+
+      print('\n=== Frame Health (via Trace Processor) ===');
+      var lines = result.stdout.toString().split('\n');
+      for (final line in lines) {
+        if (line.startsWith('"') || line.contains(',')) {
+          print(line);
+        }
+      }
+
+      // Run breakdown query
+      await qFile.writeAsString(breakdownQuery);
+      final result2 = await Process.run(tpPath, [tracePath, '-q', qFile.path]);
+
+      if (result2.exitCode != 0) {
+        print('Failed to run Trace Processor for breakdown: ${result2.stderr}');
+        return;
+      }
+
+      print('\n=== Time Breakdown (via Trace Processor) ===');
+      lines = result2.stdout.toString().split('\n');
+      for (final line in lines) {
+        if (line.startsWith('"') || line.contains(',')) {
+          print(line);
+        }
+      }
+    } finally {
+      await tempDir.delete(recursive: true);
     }
   }
 
