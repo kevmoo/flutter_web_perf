@@ -19,7 +19,9 @@ Future<Map<String, dynamic>> symbolicateProfile({
   }
 
   final profileContent = await profileFile.readAsString();
-  final profile = CpuProfile.fromJson(json.decode(profileContent));
+  final profile = CpuProfile.fromJson(
+    json.decode(profileContent) as Map<String, dynamic>,
+  );
 
   final mapContent = await mapFile.readAsString();
   final mapping = parse(mapContent) as SingleMapping;

@@ -9,9 +9,13 @@ executables:
 
 dependencies:
   args: ^2.4.0
-  io: ^1.0.4
-  webkit_inspection_protocol: ^1.2.0
   http: ^1.1.0
+  io: ^1.0.4
+  path: ^1.9.1
   shelf: ^1.4.1
   shelf_static: ^1.1.2
   source_maps: ^0.10.12
+  webkit_inspection_protocol: ^1.2.0
+
+dev_dependencies:
+  test: ^1.24.0

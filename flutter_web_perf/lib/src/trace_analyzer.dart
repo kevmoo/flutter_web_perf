@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'dart:io';
-import 'package:source_maps/source_maps.dart';
+import 'package:path/path.dart' as p;
+import 'profile_model.dart';
 
 class TraceAnalyzer {
   final String tracePath;
@@ -13,155 +14,53 @@ class TraceAnalyzer {
     this.expandCanvaskitFrames = false,
   });
 
-  Future<void> analyze() async {
-    final file = File(tracePath);
-    if (!await file.exists()) {
-      print('Trace file not found: $tracePath');
+  static const String defaultTraceProcessorPath =
+      '/Users/kevmoo/github/perfetto/out/default/trace_processor_shell';
+
+  Future<void> analyze({String? traceProcessorPath}) async {
+    final tpPath = traceProcessorPath ?? defaultTraceProcessorPath;
+    final tpFile = File(tpPath);
+    if (!await tpFile.exists()) {
+      print('Trace Processor not found at: $tpPath');
+      print('Skipping advanced analysis.');
       return;
     }
 
-    final content = await file.readAsString();
-    final events = json.decode(content) as List;
-    print('Loaded ${events.length} events.');
+    print('Analyzing trace using Trace Processor...');
 
-    SingleMapping? mapping;
-    if (sourceMapPath != null) {
-      final mapFile = File(sourceMapPath!);
-      if (await mapFile.exists()) {
-        final mapContent = await mapFile.readAsString();
-        mapping = parse(mapContent) as SingleMapping;
-        print('Loaded source map: $sourceMapPath');
-      } else {
-        print('Source map file not found: $sourceMapPath');
-      }
+    // Query for Frame Health
+    final frameHealthQuery = '''
+      WITH frame_times AS (
+        SELECT ts,
+               LEAD(ts) OVER (ORDER BY ts) - ts AS frame_dur
+        FROM slice
+        WHERE name = 'Scheduler::BeginFrame'
+      )
+      SELECT 
+        (SELECT AVG(frame_dur) / 1000000.0 FROM frame_times WHERE frame_dur IS NOT NULL) AS avg_interval_ms,
+        (SELECT AVG(dur) / 1000000.0 FROM slice WHERE name = 'AnimationFrame') AS avg_work_ms,
+        (SELECT COUNT(*) FROM slice WHERE name = 'Scheduler::BeginFrame') AS requested_count,
+        (SELECT COUNT(*) FROM slice WHERE name = 'AnimationFrame') AS processed_count;
+    ''';
+
+    final tempDir = await Directory.systemTemp.createTemp('query_');
+    final qFile = File(p.join(tempDir.path, 'query.sql'));
+    await qFile.writeAsString(frameHealthQuery);
+
+    final result = await Process.run(tpPath, [tracePath, '-q', qFile.path]);
+    await tempDir.delete(recursive: true);
+
+    if (result.exitCode != 0) {
+      print('Failed to run Trace Processor: ${result.stderr}');
+      return;
     }
 
-    // 1. Frame Health
-    final beginFrames = events
-        .where((e) => e['name'] == 'Scheduler::BeginFrame')
-        .toList();
-    final animationFrames = events
-        .where((e) => e['name'] == 'AnimationFrame')
-        .toList();
-
-    print('\n=== Frame Health ===');
-    print('Requested Frames (BeginFrame): ${beginFrames.length}');
-    print('Processed Frames (AnimationFrame): ${animationFrames.length}');
-
-    if (beginFrames.isNotEmpty) {
-      beginFrames.sort((a, b) => (a['ts'] as num).compareTo(b['ts'] as num));
-      var totalInterval = 0.0;
-      var intervalCount = 0;
-      for (var i = 0; i < beginFrames.length - 1; i++) {
-        final current = beginFrames[i]['ts'] as num;
-        final next = beginFrames[i + 1]['ts'] as num;
-        totalInterval += (next - current);
-        intervalCount++;
-      }
-      final avgIntervalMs = intervalCount > 0
-          ? (totalInterval / intervalCount) / 1000.0
-          : 0.0;
-      print('Average Frame Interval: ${avgIntervalMs.toStringAsFixed(2)} ms');
-    }
-
-    if (animationFrames.isNotEmpty) {
-      final totalDur = animationFrames
-          .map((e) => e['dur'] as num? ?? 0)
-          .reduce((a, b) => a + b);
-      final avgDurMs = (totalDur / animationFrames.length) / 1000.0;
-      print('Average Frame Work Duration: ${avgDurMs.toStringAsFixed(2)} ms');
-    }
-
-    final dropRate = beginFrames.isNotEmpty
-        ? (1 - (animationFrames.length / beginFrames.length)) * 100
-        : 0.0;
-    print('Estimated Frame Drop Rate: ${dropRate.toStringAsFixed(2)}%');
-
-    // 2. Task Breakdown
-    final slowTasks = events.where((e) {
-      final dur = e['dur'];
-      return dur != null && dur > 16666; // > 16.6ms
-    }).toList();
-
-    print('\n=== Task Breakdown ===');
-    print('Slow Tasks (>16.6ms): ${slowTasks.length}');
-
-    // Sum GC overhead
-    final gcEvents = events.where((e) {
-      final name = e['name'] as String?;
-      final cat = e['cat'] as String?;
-      return (name != null && name.contains('GC')) ||
-          (cat != null && cat.contains('gc'));
-    }).toList();
-
-    final totalGcDur = gcEvents.isNotEmpty
-        ? gcEvents.map((e) => e['dur'] as num? ?? 0).reduce((a, b) => a + b)
-        : 0;
-    print(
-      'Total GC Overhead: ${(totalGcDur / 1000.0).toStringAsFixed(2)} ms (${gcEvents.length} events)',
-    );
-
-    // 3. Symbolication & Attribution
-    // Sort slow tasks by duration
-    slowTasks.sort((a, b) => (b['dur'] as num).compareTo(a['dur'] as num));
-
-    print('\n=== Top 5 Slowest Tasks ===');
-    for (var i = 0; i < 5 && i < slowTasks.length; i++) {
-      final t = slowTasks[i];
-      final name = t['name'];
-      final dur = t['dur'];
-      final cat = t['cat'];
-
-      print(
-        'Task: $name, Duration: ${(dur / 1000.0).toStringAsFixed(2)} ms, Category: $cat',
-      );
-
-      // Try to symbolicate
-      final args = t['args'];
-      if (args != null && args['data'] != null) {
-        final data = args['data'] as Map<String, dynamic>;
-        final line = data['lineNumber'] as int?;
-        final column = data['columnNumber'] as int?;
-
-        if (line != null && column != null && mapping != null) {
-          final span = mapping.spanFor(line, column);
-          if (span != null) {
-            print(
-              '  -> Original: ${span.sourceUrl}:${span.start.line + 1}:${span.start.column + 1}',
-            );
-            if (span.isIdentifier) {
-              print('  -> Identifier: ${span.text}');
-            }
-          }
-        }
-      }
-    }
-
-    // 4. Search for package: URIs in all events
-    print('\n=== Non-SDK Mapped Locations (First 20) ===');
-    var printedCount = 0;
-    final seenUrls = <String>{};
-
-    for (final e in events) {
-      final args = e['args'];
-      if (args != null && args['data'] != null) {
-        final data = args['data'] as Map<String, dynamic>;
-        final line = data['lineNumber'] as int?;
-        final column = data['columnNumber'] as int?;
-
-        if (line != null && column != null && mapping != null) {
-          final span = mapping.spanFor(line, column);
-          if (span != null) {
-            final url = span.sourceUrl.toString();
-            if (!url.contains('org-dartlang-sdk:///')) {
-              if (seenUrls.add(url)) {
-                print('  -> $url');
-                printedCount++;
-                if (printedCount >= 20) break;
-              }
-            }
-          }
-        }
+    print('\n=== Frame Health (via Trace Processor) ===');
+    // Simple parsing of CSV output
+    final lines = result.stdout.toString().split('\n');
+    for (final line in lines) {
+      if (line.startsWith('"') || line.contains(',')) {
+        print(line);
       }
     }
   }
@@ -174,22 +73,19 @@ class TraceAnalyzer {
     }
 
     final content = await file.readAsString();
-    final profile = json.decode(content) as Map<String, dynamic>;
-
-    final nodes = profile['nodes'] as List;
-    final samples = profile['samples'] as List;
+    final profile = CpuProfile.fromJson(
+      json.decode(content) as Map<String, dynamic>,
+    );
 
     final nodeCounts = <int, int>{};
-    for (final sample in samples) {
-      final nodeId = sample as int;
-      nodeCounts[nodeId] = (nodeCounts[nodeId] ?? 0) + 1;
+    for (final sample in profile.samples) {
+      nodeCounts[sample] = (nodeCounts[sample] ?? 0) + 1;
     }
 
     // Map node ID to node object for easy lookup
-    final nodeMap = <int, Map<String, dynamic>>{};
-    for (final node in nodes) {
-      final id = node['id'] as int;
-      nodeMap[id] = node as Map<String, dynamic>;
+    final nodeMap = <int, CpuProfileNode>{};
+    for (final node in profile.nodes) {
+      nodeMap[node.id] = node;
     }
 
     // Aggregate by function name
@@ -197,9 +93,9 @@ class TraceAnalyzer {
     nodeCounts.forEach((nodeId, count) {
       final node = nodeMap[nodeId];
       if (node != null) {
-        final callFrame = node['callFrame'] as Map<String, dynamic>;
-        final functionName = callFrame['functionName'] as String;
-        final url = callFrame['url'] as String;
+        final frame = node.callFrame;
+        final functionName = frame.functionName;
+        final url = frame.url;
 
         var key = '$functionName ($url)';
         // TODO: be exhaustive about the canvaskit variants here.

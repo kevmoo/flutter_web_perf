@@ -4,3 +4,6 @@ environment:
 workspace:
   - flutter_web_perf
   - sample_app
+
+dev_dependencies:
+  dart_flutter_team_lints: ^3.5.0

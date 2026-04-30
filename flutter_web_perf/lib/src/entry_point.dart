@@ -1,10 +1,12 @@
 import 'dart:convert';
 import 'dart:io';
+
 import 'package:args/args.dart';
+
 import 'chrome_controller.dart';
+import 'profile_symbolicator.dart';
 import 'server.dart';
 import 'trace_analyzer.dart';
-import 'profile_symbolicator.dart';
 
 enum CompileTarget { js, wasm }
 
@@ -61,7 +63,7 @@ Future<void> runApp(List<String> arguments) async {
     await controller.startProfiling();
 
     // Wait a bit to collect data
-    await Future.delayed(const Duration(seconds: 5));
+    await Future<void>.delayed(const Duration(seconds: 5));
 
     final profile = await controller.stopProfiling();
     final events = await controller.stopTracing();

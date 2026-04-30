@@ -30,7 +30,7 @@ class ChromeController {
     // Wait for file to exist
     var attempts = 0;
     while (!await activePortFile.exists() && attempts < 20) {
-      await Future.delayed(const Duration(milliseconds: 100));
+      await Future<void>.delayed(const Duration(milliseconds: 100));
       attempts++;
     }
 
@@ -55,14 +55,15 @@ class ChromeController {
       } catch (_) {
         // Ignore and retry
       }
-      await Future.delayed(const Duration(milliseconds: 500));
+      await Future<void>.delayed(const Duration(milliseconds: 500));
     }
 
     if (response == null || response.statusCode != 200) {
       throw Exception('Failed to connect to Chrome DevTools after retries.');
     }
 
-    final tabs = json.decode(response.body) as List;
+    final tabs = (json.decode(response.body) as List)
+        .cast<Map<String, dynamic>>();
     final targetTab = tabs.firstWhere((tab) => tab['type'] == 'page');
     final wsUrl = targetTab['webSocketDebuggerUrl'] as String;
 
