@@ -5,8 +5,13 @@ import 'package:source_maps/source_maps.dart';
 class TraceAnalyzer {
   final String tracePath;
   final String? sourceMapPath;
+  final bool expandCanvaskitFrames;
 
-  TraceAnalyzer(this.tracePath, {this.sourceMapPath});
+  TraceAnalyzer(
+    this.tracePath, {
+    this.sourceMapPath,
+    this.expandCanvaskitFrames = false,
+  });
 
   Future<void> analyze() async {
     final file = File(tracePath);
@@ -195,7 +200,14 @@ class TraceAnalyzer {
         final callFrame = node['callFrame'] as Map<String, dynamic>;
         final functionName = callFrame['functionName'] as String;
         final url = callFrame['url'] as String;
-        final key = '$functionName ($url)';
+
+        var key = '$functionName ($url)';
+        // TODO: be exhaustive about the canvaskit variants here.
+        // We have skwasm, etc etc
+        if (!expandCanvaskitFrames && url.contains('canvaskit.wasm')) {
+          key = 'CanvasKit Wasm (collapsed)';
+        }
+
         functionCounts[key] = (functionCounts[key] ?? 0) + count;
       }
     });
