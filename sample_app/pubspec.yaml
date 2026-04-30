@@ -1,0 +1,10 @@
+name: bouncy_demo
+publish_to: 'none' # Remove this line if you wish to publish to pub.dev
+resolution: workspace
+
+environment:
+  sdk: ^3.10.0
+
+dependencies:
+  flutter:
+    sdk: flutter

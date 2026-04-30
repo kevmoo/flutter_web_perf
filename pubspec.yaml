@@ -1,0 +1,6 @@
+name: flutter_web_perf_workspace
+environment:
+  sdk: ^3.10.0
+workspace:
+  - flutter_web_perf
+  - sample_app
