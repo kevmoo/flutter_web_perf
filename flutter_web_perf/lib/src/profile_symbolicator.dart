@@ -1,65 +1,46 @@
 import 'dart:convert';
 import 'dart:io';
 import 'package:source_maps/source_maps.dart';
+import 'exceptions.dart';
+import 'profile_model.dart';
 
-class ProfileSymbolicator {
-  final String profilePath;
-  final String sourceMapPath;
-  final String outputPath;
+Future<Map<String, dynamic>> symbolicateProfile({
+  required String profilePath,
+  required String sourceMapPath,
+}) async {
+  final profileFile = File(profilePath);
+  final mapFile = File(sourceMapPath);
 
-  ProfileSymbolicator({
-    required this.profilePath,
-    required this.sourceMapPath,
-    required this.outputPath,
-  });
+  if (!await profileFile.exists()) {
+    throw FlutterWebPerfException('Profile file not found: $profilePath');
+  }
+  if (!await mapFile.exists()) {
+    throw FlutterWebPerfException('Source map file not found: $sourceMapPath');
+  }
 
-  Future<void> symbolicate() async {
-    final profileFile = File(profilePath);
-    final mapFile = File(sourceMapPath);
+  final profileContent = await profileFile.readAsString();
+  final profile = CpuProfile.fromJson(json.decode(profileContent));
 
-    if (!await profileFile.exists()) {
-      print('Profile file not found: \$profilePath');
-      return;
-    }
-    if (!await mapFile.exists()) {
-      print('Source map file not found: \$sourceMapPath');
-      return;
-    }
+  final mapContent = await mapFile.readAsString();
+  final mapping = parse(mapContent) as SingleMapping;
 
-    final profileContent = await profileFile.readAsString();
-    final profile = json.decode(profileContent) as Map<String, dynamic>;
+  for (final node in profile.nodes) {
+    final frame = node.callFrame;
+    final line = frame.lineNumber;
+    final column = frame.columnNumber;
 
-    final mapContent = await mapFile.readAsString();
-    final mapping = parse(mapContent) as SingleMapping;
-
-    final nodes = profile['nodes'] as List;
-    var mappedCount = 0;
-
-    for (final node in nodes) {
-      final callFrame = node['callFrame'] as Map<String, dynamic>;
-      final line = callFrame['lineNumber'] as int?;
-      final column = callFrame['columnNumber'] as int?;
-
-      if (line != null && column != null) {
-        final span = mapping.spanFor(line, column);
-        if (span != null) {
-          // Use the identifier name if available, otherwise keep original
-          if (span.text.isNotEmpty) {
-            callFrame['functionName'] = span.text;
-          }
-          callFrame['url'] = span.sourceUrl.toString();
-          callFrame['lineNumber'] =
-              span.start.line + 1; // Convert to 1-based for human readability
-          callFrame['columnNumber'] = span.start.column + 1;
-          mappedCount++;
+    if (line != null && column != null) {
+      final span = mapping.spanFor(line, column);
+      if (span != null) {
+        if (span.text.isNotEmpty) {
+          frame.functionName = span.text;
         }
+        frame.url = span.sourceUrl.toString();
+        frame.lineNumber = span.start.line + 1;
+        frame.columnNumber = span.start.column + 1;
       }
     }
-
-    print('Symbolicated $mappedCount nodes.');
-
-    final outputFile = File(outputPath);
-    await outputFile.writeAsString(json.encode(profile));
-    print('Saved symbolicated profile to ${outputFile.absolute.path}');
   }
+
+  return profile.toJson();
 }

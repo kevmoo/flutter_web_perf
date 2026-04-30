@@ -83,12 +83,14 @@ Future<void> runApp(List<String> arguments) async {
     final analyzer = TraceAnalyzer(file.path, sourceMapPath: mapPath);
     await analyzer.analyze();
 
-    final symbolicator = ProfileSymbolicator(
+    final symbolicatedProfile = await symbolicateProfile(
       profilePath: profileFile.path,
       sourceMapPath: mapPath,
-      outputPath: 'profile_symbolicated.json',
     );
-    await symbolicator.symbolicate();
+
+    final symbolicatedFile = File('profile_symbolicated.json');
+    await symbolicatedFile.writeAsString(json.encode(symbolicatedProfile));
+    print('Saved symbolicated profile to ${symbolicatedFile.absolute.path}');
 
     await analyzer.analyzeProfile('profile_symbolicated.json');
   } catch (e) {
