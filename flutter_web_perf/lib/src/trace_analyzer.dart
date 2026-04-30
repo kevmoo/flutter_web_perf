@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:path/path.dart' as p;
 import 'performance_report.dart';
 import 'profile_model.dart';
+import 'profile_symbolicator.dart';
 
 class TraceAnalyzer {
   final String tracePath;
@@ -152,7 +153,7 @@ class TraceAnalyzer {
       if (node != null) {
         final frame = node.callFrame;
         final functionName = frame.functionName;
-        final url = frame.url;
+        final url = normalizeLocation(frame.url);
 
         var key = functionName;
         if (!expandCanvaskitFrames &&

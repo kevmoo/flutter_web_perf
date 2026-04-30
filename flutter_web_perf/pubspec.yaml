@@ -16,6 +16,7 @@ dependencies:
   shelf_static: ^1.1.2
   source_maps: ^0.10.12
   webkit_inspection_protocol: ^1.2.0
+  mustache_template: ^2.0.0
 
 dev_dependencies:
   test: ^1.24.0

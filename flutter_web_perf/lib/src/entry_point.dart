@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:args/args.dart';
 
 import 'chrome_controller.dart';
+import 'html_reporter.dart';
 import 'profile_symbolicator.dart';
 import 'server.dart';
 import 'trace_analyzer.dart';
@@ -120,6 +121,10 @@ Future<void> runApp(List<String> arguments) async {
       final f = report.hotFunctions[i];
       print('${i + 1}. ${f.name}: ${f.samples} samples');
     }
+
+    // Generate HTML report
+    final htmlReporter = HtmlReporter();
+    await htmlReporter.saveReport(report, 'report.html');
   } catch (e) {
     print('Error: $e');
   } finally {
