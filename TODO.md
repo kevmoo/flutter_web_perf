@@ -68,3 +68,21 @@ Here are some ideas on how we can approach building this tool, breaking it down 
 - [ ] Scaffold a basic Dart CLI app.
 - [ ] Experiment with launching Chrome via CDP and capturing basic trace events.
 - [ ] Investigate what timing signals Flutter Web naturally exposes to the browser.
+
+## Stats to collect and display
+
+### 1. Frame Health
+- **Average Frame Interval**: How often the browser signals a new frame (e.g., target 16.6ms for 60fps).
+- **Average Frame Work Duration**: How long the application actually takes to process a frame (Scripting + Rendering).
+- **Frame Drop Rate**: Percentage of requested frames that were missed or delayed.
+- **Jank Count**: Number of frames that exceeded the 16.6ms threshold.
+
+### 2. Task Breakdown
+- **Top Slow Tasks**: List of individual tasks exceeding 16.6ms, sorted by duration.
+- **Category Distribution**: Time spent in `Scripting` (V8/Wasm), `Rendering` (Layout, Paint), and `GC` (Garbage Collection).
+- **GC Overhead**: Total time spent in Garbage Collection and frequency of GC pauses.
+
+### 3. Symbolication & Attribution
+- **Mapped Source Locations**: File and line numbers for slow Dart functions (using source maps).
+- **Call Tree / Hotspots**: Identifying which specific operations (e.g., `TimerFire`, `FunctionCall`) are responsible for the most jank.
+
