@@ -172,12 +172,13 @@ class TraceAnalyzer {
     final functionUrls = <String, String>{};
     // Track the hottest line number for a given function name
     final functionLineCounts = <String, Map<int, int>>{};
+    final functionWasmIndices = <String, int?>{};
 
     for (final leafNodeId in profile.samples) {
       var currentNodeId = leafNodeId;
       final seenFunctionsInStack = <String>{};
 
-      while (currentNodeId != null) {
+      while (currentNodeId != -1) {
         final node = nodeMap[currentNodeId];
         if (node == null) break;
 
@@ -204,13 +205,17 @@ class TraceAnalyzer {
                 (inclusiveFunctionCounts[key] ?? 0) + 1;
             functionUrls[key] = url;
 
-            if (frame.lineNumber != null && frame.lineNumber! >= 0) {
+            final lineNumber = frame.lineNumber;
+            if (lineNumber != null && lineNumber >= 0) {
               final lineMap = functionLineCounts.putIfAbsent(
                 key,
                 () => <int, int>{},
               );
-              lineMap[frame.lineNumber!] =
-                  (lineMap[frame.lineNumber!] ?? 0) + 1;
+              lineMap[lineNumber] = (lineMap[lineNumber] ?? 0) + 1;
+            }
+
+            if (frame.wasmFunctionIndex != null) {
+              functionWasmIndices[key] = frame.wasmFunctionIndex;
             }
           }
         }
@@ -240,8 +245,9 @@ class TraceAnalyzer {
           url: functionUrls[entry.key] ?? '',
           samples: entry.value,
           lineNumber: hottestLine,
-          columnNumber:
-              null, // Column numbers are generally useless for human-readable output
+          // Column numbers are generally useless for human-readable output
+          columnNumber: null,
+          wasmFunctionIndex: functionWasmIndices[entry.key],
         ),
       );
     }

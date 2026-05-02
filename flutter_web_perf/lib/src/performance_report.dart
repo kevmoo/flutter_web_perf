@@ -51,6 +51,7 @@ class HotFunction {
   final int samples;
   final int? lineNumber;
   final int? columnNumber;
+  final int? wasmFunctionIndex;
 
   HotFunction({
     required this.name,
@@ -58,5 +59,6 @@ class HotFunction {
     required this.samples,
     this.lineNumber,
     this.columnNumber,
+    this.wasmFunctionIndex,
   });
 }

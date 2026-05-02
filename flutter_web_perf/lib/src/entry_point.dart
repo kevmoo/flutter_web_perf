@@ -124,7 +124,10 @@ Future<void> runApp(List<String> arguments) async {
     print('\n=== Top 10 Hot Functions ===');
     for (var i = 0; i < report.hotFunctions.length; i++) {
       final f = report.hotFunctions[i];
-      print('${i + 1}. ${f.name}: ${f.samples} samples');
+      final wasmLabel = f.wasmFunctionIndex != null
+          ? ' (Wasm Index: ${f.wasmFunctionIndex})'
+          : '';
+      print('${i + 1}. ${f.name}$wasmLabel: ${f.samples} samples');
 
       // Source-Aware Hotspot Analysis!
       if (f.url.contains('package:flutter/') && f.lineNumber != null) {
@@ -142,11 +145,11 @@ Future<void> runApp(List<String> arguments) async {
             final lines = await sourceFile.readAsLines();
             final centerLineIdx = (f.lineNumber! - 1).clamp(
               0,
-              lines.length > 0 ? lines.length - 1 : 0,
+              lines.isNotEmpty ? lines.length - 1 : 0,
             );
             final startLineIdx = (centerLineIdx - 2).clamp(
               0,
-              lines.length > 0 ? lines.length - 1 : 0,
+              lines.isNotEmpty ? lines.length - 1 : 0,
             );
             final endLineIdx = (centerLineIdx + 3).clamp(0, lines.length);
 

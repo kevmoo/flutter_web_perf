@@ -31,16 +31,18 @@ Future<void> main(List<String> args) async {
   // Run wasm-tools print to get the textual representation
   final process = await Process.start('wasm-tools', ['print', wasmPath]);
 
-  bool inTargetFunction = false;
-  int openParentheses = 0;
+  var inTargetFunction = false;
+  var openParentheses = 0;
   final funcSignatureRegex = RegExp(
     r'^\s*\(func .*\(;' + functionIndex.toString() + r';\)',
   );
 
   // Process the output stream line by line
-  process.stdout.transform(utf8.decoder).transform(const LineSplitter()).listen((
-    line,
-  ) {
+  final linesStream = process.stdout
+      .transform(utf8.decoder)
+      .transform(const LineSplitter());
+
+  linesStream.listen((line) {
     if (!inTargetFunction) {
       // Look for the start of the target function
       if (funcSignatureRegex.hasMatch(line)) {
@@ -63,8 +65,8 @@ Future<void> main(List<String> args) async {
   });
 
   final exitCode = await process.exitCode;
+  // -15 is SIGTERM (when we kill it early)
   if (exitCode != 0 && exitCode != -15) {
-    // -15 is SIGTERM (when we kill it early)
     print('wasm-tools exited with code $exitCode');
     final stderr = await process.stderr.transform(utf8.decoder).join();
     if (stderr.isNotEmpty) {
@@ -74,7 +76,7 @@ Future<void> main(List<String> args) async {
 }
 
 int _countChar(String text, String char) {
-  int count = 0;
+  var count = 0;
   for (var i = 0; i < text.length; i++) {
     if (text[i] == char) count++;
   }

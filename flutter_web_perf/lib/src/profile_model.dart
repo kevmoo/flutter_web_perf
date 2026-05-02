@@ -61,20 +61,32 @@ class CallFrame {
   String url;
   int? lineNumber;
   int? columnNumber;
+  int? wasmFunctionIndex;
 
   CallFrame({
     required this.functionName,
     required this.url,
     this.lineNumber,
     this.columnNumber,
+    this.wasmFunctionIndex,
   });
 
   factory CallFrame.fromJson(Map<String, dynamic> json) {
+    final name = json['functionName'] as String? ?? '';
+    int? wasmIndex;
+    if (name.startsWith('wasm-function[')) {
+      final match = RegExp(r'wasm-function\[(\d+)\]').firstMatch(name);
+      if (match != null) {
+        wasmIndex = int.tryParse(match.group(1)!);
+      }
+    }
+
     return CallFrame(
-      functionName: json['functionName'] as String? ?? '',
+      functionName: name,
       url: json['url'] as String? ?? '',
       lineNumber: json['lineNumber'] as int?,
       columnNumber: json['columnNumber'] as int?,
+      wasmFunctionIndex: wasmIndex,
     );
   }
 
@@ -83,5 +95,6 @@ class CallFrame {
     'url': url,
     if (lineNumber != null) 'lineNumber': lineNumber,
     if (columnNumber != null) 'columnNumber': columnNumber,
+    if (wasmFunctionIndex != null) 'wasmFunctionIndex': wasmFunctionIndex,
   };
 }
