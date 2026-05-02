@@ -18,8 +18,6 @@ Future<void> main(List<String> args) async {
     exit(1);
   }
 
-  print('Extracting WebAssembly Text (WAT) for "$targetIdentifier"...');
-
   // Run wasm-tools print to get the textual representation
   final process = await Process.start('wasm-tools', ['print', wasmPath]);
 
@@ -44,16 +42,18 @@ Future<void> main(List<String> args) async {
       .transform(const LineSplitter());
 
   linesStream.listen((line) {
+    String formatLine(String l) => l.startsWith('  ') ? l.substring(2) : l;
+
     if (!inTargetFunction) {
       // Look for the start of the target function
       if (funcSignatureRegex.hasMatch(line)) {
         inTargetFunction = true;
         // Count initial parentheses
         openParentheses += _countChar(line, '(') - _countChar(line, ')');
-        print(line);
+        print(formatLine(line));
       }
     } else {
-      print(line);
+      print(formatLine(line));
       openParentheses += _countChar(line, '(') - _countChar(line, ')');
 
       // If we've closed all parentheses opened by the function, we're done
