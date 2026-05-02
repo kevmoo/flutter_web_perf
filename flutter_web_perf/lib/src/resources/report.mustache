@@ -121,6 +121,9 @@
       text-align: left;
       padding: 0.75rem;
       border-bottom: 1px solid var(--glass-border);
+      word-wrap: break-word;
+      overflow: hidden;
+      max-width: 0;
     }
 
     th {
@@ -258,7 +261,7 @@
               {{#hasWasm}}
               <details style="margin-top: 0.5rem; cursor: pointer;">
                 <summary style="color: var(--accent-color); font-size: 0.8rem; margin-bottom: 0.5rem;">View Wasm Instructions</summary>
-                <pre style="background: rgba(0,0,0,0.3); padding: 1rem; border-radius: 0.5rem; overflow-x: auto; font-size: 0.8rem; color: #a5b4fc; margin: 0;">{{wasmInstructions}}</pre>
+                <pre style="background: rgba(0,0,0,0.3); padding: 1rem; border-radius: 0.5rem; overflow-x: auto; max-width: 100%; box-sizing: border-box; white-space: pre; font-size: 0.8rem; color: #a5b4fc; margin: 0;">{{wasmInstructions}}</pre>
               </details>
               {{/hasWasm}}
             </td>
