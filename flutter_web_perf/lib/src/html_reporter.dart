@@ -30,6 +30,16 @@ class HtmlReporter {
     for (var i = 0; i < report.hotFunctions.length; i++) {
       final f = report.hotFunctions[i];
       final isSdk = f.url.contains('org-dartlang-sdk:///');
+
+      List<Map>? wasmLines;
+      if (f.wasmInstructions != null) {
+        final lines = const LineSplitter().convert(f.wasmInstructions!);
+        wasmLines = [];
+        for (var lineIdx = 0; lineIdx < lines.length; lineIdx++) {
+          wasmLines.add({'number': lineIdx + 1, 'text': lines[lineIdx]});
+        }
+      }
+
       hotFunctionsData.add({
         'index': i + 1,
         'name': f.name,
@@ -37,8 +47,8 @@ class HtmlReporter {
         'samples': f.samples,
         'tagClass': isSdk ? 'tag sdk' : 'tag',
         'tagText': isSdk ? 'SDK' : 'App',
-        'hasWasm': f.wasmInstructions != null,
-        'wasmInstructions': f.wasmInstructions,
+        'hasWasm': wasmLines != null,
+        'wasmLines': wasmLines,
       });
     }
 

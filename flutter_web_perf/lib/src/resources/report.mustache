@@ -182,6 +182,35 @@
       border-radius: 0.5rem;
     }
 
+    .code-block {
+      background: rgba(0, 0, 0, 0.4);
+      border-radius: 0.5rem;
+      overflow: hidden;
+      display: flex;
+      font-family: 'Roboto Mono', monospace;
+      font-size: 0.85rem;
+      border: 1px solid var(--glass-border);
+      line-height: 1.5;
+    }
+
+    .gutter {
+      padding: 1rem 0.5rem;
+      background: rgba(255, 255, 255, 0.03);
+      border-right: 1px solid var(--glass-border);
+      text-align: right;
+      color: var(--secondary-color);
+      user-select: none;
+      min-width: 2.5rem;
+    }
+
+    .code-content {
+      padding: 1rem;
+      overflow-x: auto;
+      flex-grow: 1;
+      color: #e2e8f0; /* Brighter text */
+      white-space: pre;
+    }
+
     footer {
       text-align: center;
       margin-top: 5rem;
@@ -266,7 +295,13 @@
             <td colspan="3" style="padding-top: 0; padding-bottom: 1.5rem;">
               <details style="cursor: pointer;">
                 <summary style="color: var(--accent-color); font-size: 0.8rem; margin-bottom: 0.5rem;">View Wasm Instructions</summary>
-                <pre style="background: rgba(0,0,0,0.3); padding: 1rem; border-radius: 0.5rem; overflow-x: auto; max-width: 100%; box-sizing: border-box; white-space: pre; font-size: 0.8rem; color: #a5b4fc; margin: 0;">{{wasmInstructions}}</pre>
+                <div class="code-block">
+                  <div class="gutter">
+                    {{#wasmLines}}{{number}}<br>{{/wasmLines}}
+                  </div>
+                  <div class="code-content">{{#wasmLines}}{{text}}
+{{/wasmLines}}</div>
+                </div>
               </details>
             </td>
           </tr>
