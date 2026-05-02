@@ -18,6 +18,28 @@ Framework engineers care about the cost of building, laying out, and painting wi
 
 ## Proposed Action Items
 
-1.  **Exhaustive Trace Breakdown:** Tweak the SQL in `trace_analyzer.dart` to extract more granular Flutter-specific lifecycle events (Build, Layout, Paint) instead of just generic "Scripting vs Rendering". *(Currently active)*
+1.  **Exhaustive Trace Breakdown:** Tweak the SQL in `trace_analyzer.dart` to extract more granular Flutter-specific lifecycle events (Build, Layout, Paint) instead of just generic "Scripting vs Rendering". *(Completed)*
 2.  **Add a "Diff" Mode:** Allow the CLI to take two profiles (e.g., `baseline` and `experiment`) and generate a side-by-side HTML report. Essential for proving changes.
 3.  **CanvasKit/SKWasm Symbolication:** Map `wasm-function[...]` names to actual C++ CanvasKit functions using DWARF symbols or source maps to better understand engine overhead.
+
+## 3. Deep Dive Analysis: Empowering Agents & Engineers
+To go beyond surface-level profiling and actively aid in optimization, we can add advanced tools that cross-reference runtime profiles with compiled output and source code.
+
+*   **Wasm Disassembly Integration (`wasm2wat`):**
+    *   **The Idea:** Knowing `Element.updateChild` is hot isn't enough. Is it hot because of a polymorphic dispatch, or excessive `struct.new` allocations?
+    *   **The Tooling:** Automate the extraction of the compiled `.wasm` module and use `wasm2wat` to dump the disassembly of the top 5 hottest functions.
+    *   **Agent Flow:** Feed the WAT code and the corresponding Dart source to an agent. The agent can identify inefficient Wasm generation (e.g., unnecessary bounds checks or trampoline overhead) and propose compiler tweaks.
+*   **Instruction-Level Profiling (via DWARF/Source Maps):**
+    *   **The Idea:** Identify exactly which line of Dart code—or which Wasm instruction—is responsible for the CPU samples within a massive function like `build`.
+    *   **The Tooling:** Enhance `profile_symbolicator.dart` to map PC offsets from the CPU profile directly to line numbers using DWARF or advanced source maps.
+*   **Automated Deoptimization & Megamorphic Detection:**
+    *   **The Idea:** V8 slows down significantly when it has to abandon monomorphic inline caches.
+    *   **The Tooling:** Enable V8 trace categories (`v8.compile`, `v8.deopt`) in `chrome_controller.dart`. Surface warnings when hot Flutter functions trigger deoptimization.
+    *   **Agent Flow:** An agent sees "Warning: `didUpdateWidget` became megamorphic." It then searches the local Flutter codebase (`/Users/kevmoo/github/flutter`) for dynamic dispatches or mixed-type lists in that function's scope.
+*   **Heap Snapshot Diffing (Memory Churn):**
+    *   **The Idea:** We see 1,141ms of GC time. What is being allocated so rapidly?
+    *   **The Tooling:** Hook into the CDP `HeapProfiler` domain. Take a snapshot before and after the test. Parse the V8 heap graph to find the objects with the highest allocation rate.
+    *   **Agent Flow:** Tool reports "100,000 `_LayoutNode` objects allocated." Agent analyzes `widget_churn.dart` and proposes an `ObjectPool` or `const` optimization.
+*   **Source-Aware Hotspot Analysis:**
+    *   **The Idea:** Leverage the local Flutter repository checkout.
+    *   **The Tooling:** When a hot function is identified, the CLI automatically reads the local Dart source code for that function from `/Users/kevmoo/github/flutter/...` and injects it into the HTML report or agent context for immediate inspection.
