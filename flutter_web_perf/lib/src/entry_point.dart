@@ -125,6 +125,43 @@ Future<void> runApp(List<String> arguments) async {
     for (var i = 0; i < report.hotFunctions.length; i++) {
       final f = report.hotFunctions[i];
       print('${i + 1}. ${f.name}: ${f.samples} samples');
+
+      // Source-Aware Hotspot Analysis!
+      if (f.url.contains('package:flutter/') && f.lineNumber != null) {
+        try {
+          final localFlutterRepo =
+              '/Users/kevmoo/github/flutter'; // Assuming local checkout
+
+          final suffix = f.url.split('package:flutter/').last;
+          final localFilePath =
+              '$localFlutterRepo/packages/flutter/lib/$suffix';
+
+          final sourceFile = File(localFilePath);
+
+          if (await sourceFile.exists()) {
+            final lines = await sourceFile.readAsLines();
+            final centerLineIdx = (f.lineNumber! - 1).clamp(
+              0,
+              lines.length > 0 ? lines.length - 1 : 0,
+            );
+            final startLineIdx = (centerLineIdx - 2).clamp(
+              0,
+              lines.length > 0 ? lines.length - 1 : 0,
+            );
+            final endLineIdx = (centerLineIdx + 3).clamp(0, lines.length);
+
+            print('    📍 ${sourceFile.path}:${f.lineNumber!}');
+            print('    ╭────────────────────────────────────────');
+            for (var lineIdx = startLineIdx; lineIdx < endLineIdx; lineIdx++) {
+              final prefix = lineIdx == centerLineIdx ? '    │ > ' : '    │   ';
+              print('$prefix${lines[lineIdx]}');
+            }
+            print('    ╰────────────────────────────────────────');
+          }
+        } catch (e) {
+          // Ignore source reading errors quietly to not break the report
+        }
+      }
     }
 
     // Generate HTML report

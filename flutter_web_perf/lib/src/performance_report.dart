@@ -49,6 +49,14 @@ class HotFunction {
   final String name;
   final String url;
   final int samples;
+  final int? lineNumber;
+  final int? columnNumber;
 
-  HotFunction({required this.name, required this.url, required this.samples});
+  HotFunction({
+    required this.name,
+    required this.url,
+    required this.samples,
+    this.lineNumber,
+    this.columnNumber,
+  });
 }

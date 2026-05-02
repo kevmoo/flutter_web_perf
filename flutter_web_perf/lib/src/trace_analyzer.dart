@@ -170,6 +170,8 @@ class TraceAnalyzer {
 
     final inclusiveFunctionCounts = <String, int>{};
     final functionUrls = <String, String>{};
+    // Track the hottest line number for a given function name
+    final functionLineCounts = <String, Map<int, int>>{};
 
     for (final leafNodeId in profile.samples) {
       var currentNodeId = leafNodeId;
@@ -201,6 +203,15 @@ class TraceAnalyzer {
             inclusiveFunctionCounts[key] =
                 (inclusiveFunctionCounts[key] ?? 0) + 1;
             functionUrls[key] = url;
+
+            if (frame.lineNumber != null && frame.lineNumber! >= 0) {
+              final lineMap = functionLineCounts.putIfAbsent(
+                key,
+                () => <int, int>{},
+              );
+              lineMap[frame.lineNumber!] =
+                  (lineMap[frame.lineNumber!] ?? 0) + 1;
+            }
           }
         }
 
@@ -215,11 +226,22 @@ class TraceAnalyzer {
     final hotFunctions = <HotFunction>[];
     for (var i = 0; i < 10 && i < sortedFunctions.length; i++) {
       final entry = sortedFunctions[i];
+      final lineMap = functionLineCounts[entry.key];
+      int? hottestLine;
+      if (lineMap != null && lineMap.isNotEmpty) {
+        hottestLine = lineMap.entries
+            .reduce((a, b) => a.value > b.value ? a : b)
+            .key;
+      }
+
       hotFunctions.add(
         HotFunction(
           name: entry.key,
           url: functionUrls[entry.key] ?? '',
           samples: entry.value,
+          lineNumber: hottestLine,
+          columnNumber:
+              null, // Column numbers are generally useless for human-readable output
         ),
       );
     }
