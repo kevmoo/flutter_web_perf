@@ -29,17 +29,31 @@ class CpuProfile {
 class CpuProfileNode {
   final int id;
   final CallFrame callFrame;
+  final List<int> children;
+  final int hitCount;
 
-  CpuProfileNode({required this.id, required this.callFrame});
+  CpuProfileNode({
+    required this.id,
+    required this.callFrame,
+    this.children = const [],
+    this.hitCount = 0,
+  });
 
   factory CpuProfileNode.fromJson(Map<String, dynamic> json) {
     return CpuProfileNode(
       id: json['id'] as int,
       callFrame: CallFrame.fromJson(json['callFrame'] as Map<String, dynamic>),
+      children: (json['children'] as List?)?.cast<int>() ?? const [],
+      hitCount: json['hitCount'] as int? ?? 0,
     );
   }
 
-  Map<String, dynamic> toJson() => {'id': id, 'callFrame': callFrame.toJson()};
+  Map<String, dynamic> toJson() => {
+    'id': id,
+    'callFrame': callFrame.toJson(),
+    'children': children,
+    'hitCount': hitCount,
+  };
 }
 
 class CallFrame {

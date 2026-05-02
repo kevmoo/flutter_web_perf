@@ -158,22 +158,27 @@ class TraceAnalyzer {
       json.decode(content) as Map<String, dynamic>,
     );
 
-    final nodeCounts = <int, int>{};
-    for (final sample in profile.samples) {
-      nodeCounts[sample] = (nodeCounts[sample] ?? 0) + 1;
-    }
-
     final nodeMap = <int, CpuProfileNode>{};
+    final parentMap = <int, int>{};
+
     for (final node in profile.nodes) {
       nodeMap[node.id] = node;
+      for (final childId in node.children) {
+        parentMap[childId] = node.id;
+      }
     }
 
-    final functionCounts = <String, int>{};
-    final functionUrls = <String, String>{}; // Map function key to URL
+    final inclusiveFunctionCounts = <String, int>{};
+    final functionUrls = <String, String>{};
 
-    nodeCounts.forEach((nodeId, count) {
-      final node = nodeMap[nodeId];
-      if (node != null) {
+    for (final leafNodeId in profile.samples) {
+      var currentNodeId = leafNodeId;
+      final seenFunctionsInStack = <String>{};
+
+      while (currentNodeId != null) {
+        final node = nodeMap[currentNodeId];
+        if (node == null) break;
+
         final frame = node.callFrame;
         final functionName = frame.functionName;
         final url = normalizeLocation(frame.url);
@@ -184,12 +189,27 @@ class TraceAnalyzer {
           key = 'CanvasKit Wasm (collapsed)';
         }
 
-        functionCounts[key] = (functionCounts[key] ?? 0) + count;
-        functionUrls[key] = url;
-      }
-    });
+        if (key.isNotEmpty &&
+            key != '(root)' &&
+            key != '(program)' &&
+            key != '(idle)' &&
+            key != '(garbage collector)' &&
+            !key.startsWith('js-to-wasm') &&
+            !key.startsWith('wasm-to-js') &&
+            key.length > 2) {
+          if (seenFunctionsInStack.add(key)) {
+            inclusiveFunctionCounts[key] =
+                (inclusiveFunctionCounts[key] ?? 0) + 1;
+            functionUrls[key] = url;
+          }
+        }
 
-    final sortedFunctions = functionCounts.entries.toList()
+        currentNodeId = parentMap[currentNodeId] ?? -1;
+        if (currentNodeId == -1) break;
+      }
+    }
+
+    final sortedFunctions = inclusiveFunctionCounts.entries.toList()
       ..sort((a, b) => b.value.compareTo(a.value));
 
     final hotFunctions = <HotFunction>[];
