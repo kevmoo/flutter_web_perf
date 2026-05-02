@@ -73,8 +73,9 @@ class CallFrame {
 
   factory CallFrame.fromJson(Map<String, dynamic> json) {
     final name = json['functionName'] as String? ?? '';
-    int? wasmIndex;
-    if (name.startsWith('wasm-function[')) {
+    int? wasmIndex = json['wasmFunctionIndex'] as int?;
+
+    if (wasmIndex == null && name.startsWith('wasm-function[')) {
       final match = RegExp(r'wasm-function\[(\d+)\]').firstMatch(name);
       if (match != null) {
         wasmIndex = int.tryParse(match.group(1)!);

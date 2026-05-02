@@ -19,11 +19,19 @@ Future<void> runApp(List<String> arguments) async {
       allowed: ['js', 'wasm'],
       defaultsTo: 'js',
       help: 'The compile target for the web app.',
+    )
+    ..addOption(
+      'analyze-hotspot',
+      help:
+          'Provide the 1-based rank of the hot function to deeply analyze using Wasm disassembly.',
     );
 
   final results = parser.parse(arguments);
   final targetStr = results['target'] as String;
   final target = targetStr == 'wasm' ? CompileTarget.wasm : CompileTarget.js;
+  final analyzeHotspotRank = int.tryParse(
+    results['analyze-hotspot'] as String? ?? '',
+  );
 
   print('Hello from flutter_web_perf tool!');
   print('Target: $targetStr');
@@ -170,6 +178,41 @@ Future<void> runApp(List<String> arguments) async {
     // Generate HTML report
     final htmlReporter = HtmlReporter();
     await htmlReporter.saveReport(report, 'report.html');
+
+    if (analyzeHotspotRank != null && target == CompileTarget.wasm) {
+      if (analyzeHotspotRank >= 1 &&
+          analyzeHotspotRank <= report.hotFunctions.length) {
+        final targetFunc = report.hotFunctions[analyzeHotspotRank - 1];
+        if (targetFunc.wasmFunctionIndex != null) {
+          print('\n=== Deep Dive Analysis: ${targetFunc.name} ===');
+          print(
+            'Extracting Wasm instructions for index ${targetFunc.wasmFunctionIndex}...\n',
+          );
+
+          final extractorResult = await Process.run('dart', [
+            'run',
+            'tool/extract_wasm_func.dart',
+            '$buildPath/main.dart.wasm',
+            targetFunc.wasmFunctionIndex.toString(),
+          ]);
+
+          if (extractorResult.exitCode == 0) {
+            print(extractorResult.stdout);
+          } else {
+            print('Failed to extract Wasm:');
+            print(extractorResult.stderr);
+          }
+        } else {
+          print(
+            '\nError: Function "${targetFunc.name}" does not have a mapped Wasm Index.',
+          );
+        }
+      } else {
+        print(
+          '\nError: --analyze-hotspot rank $analyzeHotspotRank is out of bounds.',
+        );
+      }
+    }
   } catch (e) {
     print('Error: $e');
   } finally {
