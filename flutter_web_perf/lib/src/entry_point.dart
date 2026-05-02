@@ -176,10 +176,6 @@ Future<void> runApp(List<String> arguments) async {
       }
     }
 
-    // Generate HTML report
-    final htmlReporter = HtmlReporter();
-    await htmlReporter.saveReport(report, 'report.html');
-
     if (analyzeHotspotRank != null && target == CompileTarget.wasm) {
       if (analyzeHotspotRank >= 1 &&
           analyzeHotspotRank <= report.hotFunctions.length) {
@@ -199,7 +195,9 @@ Future<void> runApp(List<String> arguments) async {
           ]);
 
           if (extractorResult.exitCode == 0) {
-            print(extractorResult.stdout);
+            final output = extractorResult.stdout.toString();
+            print(output);
+            targetFunc.wasmInstructions = output;
           } else {
             print('Failed to extract Wasm:');
             print(extractorResult.stderr);
@@ -215,6 +213,10 @@ Future<void> runApp(List<String> arguments) async {
         );
       }
     }
+
+    // Generate HTML report (after we've potentially populated wasmInstructions)
+    final htmlReporter = HtmlReporter();
+    await htmlReporter.saveReport(report, 'out/report.html');
   } catch (e) {
     print('Error: $e');
   } finally {

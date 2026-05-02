@@ -37,6 +37,8 @@ class HtmlReporter {
         'samples': f.samples,
         'tagClass': isSdk ? 'tag sdk' : 'tag',
         'tagText': isSdk ? 'SDK' : 'App',
+        'hasWasm': f.wasmInstructions != null,
+        'wasmInstructions': f.wasmInstructions,
       });
     }
 

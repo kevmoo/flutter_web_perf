@@ -52,6 +52,7 @@ class HotFunction {
   final int? lineNumber;
   final int? columnNumber;
   final int? wasmFunctionIndex;
+  String? wasmInstructions;
 
   HotFunction({
     required this.name,
@@ -60,5 +61,6 @@ class HotFunction {
     this.lineNumber,
     this.columnNumber,
     this.wasmFunctionIndex,
+    this.wasmInstructions,
   });
 }

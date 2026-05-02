@@ -253,7 +253,15 @@
           {{#hotFunctions}}
           <tr>
             <td>{{index}}</td>
-            <td class="mono">{{name}}</td>
+            <td class="mono">
+              {{name}}
+              {{#hasWasm}}
+              <details style="margin-top: 0.5rem; cursor: pointer;">
+                <summary style="color: var(--accent-color); font-size: 0.8rem; margin-bottom: 0.5rem;">View Wasm Instructions</summary>
+                <pre style="background: rgba(0,0,0,0.3); padding: 1rem; border-radius: 0.5rem; overflow-x: auto; font-size: 0.8rem; color: #a5b4fc; margin: 0;">{{wasmInstructions}}</pre>
+              </details>
+              {{/hasWasm}}
+            </td>
             <td><span class="{{tagClass}}">{{tagText}}</span> {{url}}</td>
             <td class="mono">{{samples}}</td>
           </tr>
