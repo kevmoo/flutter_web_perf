@@ -199,6 +199,12 @@ class TraceAnalyzer {
             key != '(garbage collector)' &&
             !key.startsWith('js-to-wasm') &&
             !key.startsWith('wasm-to-js') &&
+            !key.startsWith('_JS_Trampoline_') &&
+            !key.startsWith('closure wrapper') &&
+            !key.startsWith('_RootZone') &&
+            !key.startsWith('_MixinApplication') &&
+            key != 'invoke' &&
+            key != '_reportTaskEvent' &&
             key.length > 2) {
           if (seenFunctionsInStack.add(key)) {
             inclusiveFunctionCounts[key] =

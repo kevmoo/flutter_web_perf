@@ -4,19 +4,13 @@ import 'dart:io';
 Future<void> main(List<String> args) async {
   if (args.length != 2) {
     print(
-      'Usage: dart run tool/extract_wasm_func.dart <path_to_wasm> <function_index>',
+      'Usage: dart run tool/extract_wasm_func.dart <path_to_wasm> <function_name_or_index>',
     );
     exit(1);
   }
 
   final wasmPath = args[0];
-  final functionIndexStr = args[1];
-  final functionIndex = int.tryParse(functionIndexStr);
-
-  if (functionIndex == null) {
-    print('Error: function_index must be an integer.');
-    exit(1);
-  }
+  final targetIdentifier = args[1];
 
   final wasmFile = File(wasmPath);
   if (!await wasmFile.exists()) {
@@ -24,17 +18,24 @@ Future<void> main(List<String> args) async {
     exit(1);
   }
 
-  print(
-    'Extracting WebAssembly Text (WAT) for function index $functionIndex...',
-  );
+  print('Extracting WebAssembly Text (WAT) for "$targetIdentifier"...');
 
   // Run wasm-tools print to get the textual representation
   final process = await Process.start('wasm-tools', ['print', wasmPath]);
 
   var inTargetFunction = false;
   var openParentheses = 0;
+
+  // Match either the index (;123;) or the exact name $name or $"name with spaces"
+  final escapedTarget = RegExp.escape(targetIdentifier);
   final funcSignatureRegex = RegExp(
-    r'^\s*\(func .*\(;' + functionIndex.toString() + r';\)',
+    r'^\s*\(func (\$' +
+        escapedTarget +
+        r'\b|\$"' +
+        escapedTarget +
+        r'"|.*\(;' +
+        escapedTarget +
+        r';\))',
   );
 
   // Process the output stream line by line
@@ -58,8 +59,8 @@ Future<void> main(List<String> args) async {
       // If we've closed all parentheses opened by the function, we're done
       if (openParentheses <= 0) {
         inTargetFunction = false;
-        process
-            .kill(); // We found our function, no need to parse the rest of the massive file
+        // Found our function, stop parsing.
+        process.kill();
       }
     }
   });

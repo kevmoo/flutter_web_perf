@@ -59,14 +59,18 @@ Future<Map<String, dynamic>> symbolicateProfile({
     final column = frame.columnNumber;
 
     if (line != null && column != null) {
-      final span = mapping.spanFor(line, column);
-      if (span != null) {
-        if (span.text.isNotEmpty) {
-          frame.functionName = span.text;
+      if (frame.url.contains('main.dart')) {
+        final span = mapping.spanFor(line, column);
+        if (span != null) {
+          if (span.text.isNotEmpty) {
+            frame.functionName = span.text;
+          }
+          frame.url = normalizeLocation(span.sourceUrl.toString());
+          frame.lineNumber = span.start.line + 1;
+          frame.columnNumber = span.start.column + 1;
         }
-        frame.url = normalizeLocation(span.sourceUrl.toString());
-        frame.lineNumber = span.start.line + 1;
-        frame.columnNumber = span.start.column + 1;
+      } else {
+        frame.url = normalizeLocation(frame.url);
       }
     }
   }

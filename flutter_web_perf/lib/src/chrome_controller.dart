@@ -20,7 +20,6 @@ class ChromeController {
     _chromeProcess = await Process.start(chromePath, [
       '--remote-debugging-port=0', // Use dynamic port
       '--headless', // Remove if we want to see it
-      '--disable-gpu',
       '--user-data-dir=${_tempDir!.path}',
       'about:blank', // Start with blank page
     ]);
@@ -72,6 +71,20 @@ class ChromeController {
 
     // Enable Debugger domain to see script events
     await _connection?.sendCommand('Debugger.enable');
+
+    // Enable Runtime domain to see console logs
+    await _connection?.sendCommand('Runtime.enable');
+    _connection?.onNotification.listen((notification) {
+      if (notification.method == 'Runtime.consoleAPICalled') {
+        final params = notification.params as Map<String, dynamic>;
+        final type = params['type'] as String;
+        final args = params['args'] as List;
+        final message = args.isNotEmpty ? args[0]['value'] as String? : '';
+        if (message != null && message.toString().isNotEmpty) {
+          print('Chrome Console [$type]: $message');
+        }
+      }
+    });
 
     _connection?.onNotification.listen((notification) {
       if (notification.method == 'Debugger.scriptParsed') {

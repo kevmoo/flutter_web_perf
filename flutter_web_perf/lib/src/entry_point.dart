@@ -23,7 +23,8 @@ Future<void> runApp(List<String> arguments) async {
     ..addOption(
       'analyze-hotspot',
       help:
-          'Provide the 1-based rank of the hot function to deeply analyze using Wasm disassembly.',
+          'Provide the 1-based rank of the hot function to deeply analyze '
+          'using Wasm disassembly.',
     );
 
   final results = parser.parse(arguments);
@@ -183,17 +184,18 @@ Future<void> runApp(List<String> arguments) async {
       if (analyzeHotspotRank >= 1 &&
           analyzeHotspotRank <= report.hotFunctions.length) {
         final targetFunc = report.hotFunctions[analyzeHotspotRank - 1];
-        if (targetFunc.wasmFunctionIndex != null) {
+        final identifier =
+            targetFunc.wasmFunctionIndex?.toString() ?? targetFunc.name;
+
+        if (identifier.isNotEmpty) {
           print('\n=== Deep Dive Analysis: ${targetFunc.name} ===');
-          print(
-            'Extracting Wasm instructions for index ${targetFunc.wasmFunctionIndex}...\n',
-          );
+          print('Extracting Wasm instructions for "$identifier"...\n');
 
           final extractorResult = await Process.run('dart', [
             'run',
             'tool/extract_wasm_func.dart',
             '$buildPath/main.dart.wasm',
-            targetFunc.wasmFunctionIndex.toString(),
+            identifier,
           ]);
 
           if (extractorResult.exitCode == 0) {
@@ -204,7 +206,7 @@ Future<void> runApp(List<String> arguments) async {
           }
         } else {
           print(
-            '\nError: Function "${targetFunc.name}" does not have a mapped Wasm Index.',
+            '\nError: Function "${targetFunc.name}" does not have a valid identifier.',
           );
         }
       } else {
