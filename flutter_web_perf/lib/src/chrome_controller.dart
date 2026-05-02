@@ -94,7 +94,7 @@ class ChromeController {
 
   Future<void> startTracing() async {
     await _connection?.sendCommand('Tracing.start', {
-      'categories': 'devtools.timeline,benchmark',
+      'categories': 'devtools.timeline,benchmark,blink.user_timing',
     });
     print('Tracing started.');
   }

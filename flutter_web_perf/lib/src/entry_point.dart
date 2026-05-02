@@ -31,7 +31,7 @@ Future<void> runApp(List<String> arguments) async {
   // 1. Build the app
   final appDir = '../sample_app';
   print('Building app in $appDir...');
-  final buildArgs = ['build', 'web', '--source-maps'];
+  final buildArgs = ['build', 'web', '--profile', '--source-maps'];
   if (target == CompileTarget.wasm) {
     buildArgs.add('--wasm');
   }
@@ -71,11 +71,16 @@ Future<void> runApp(List<String> arguments) async {
 
     print('Collected ${events.length} trace events.');
 
-    final file = File('trace.json');
+    final outDir = Directory('out');
+    if (!await outDir.exists()) {
+      await outDir.create();
+    }
+
+    final file = File('out/trace.json');
     await file.writeAsString(json.encode(events));
     print('Saved trace data to ${file.absolute.path}');
 
-    final profileFile = File('profile.json');
+    final profileFile = File('out/profile.json');
     await profileFile.writeAsString(json.encode(profile));
     print('Saved profile data to ${profileFile.absolute.path}');
 
@@ -90,7 +95,7 @@ Future<void> runApp(List<String> arguments) async {
       sourceMapPath: mapPath,
     );
 
-    final symbolicatedFile = File('profile_symbolicated.json');
+    final symbolicatedFile = File('out/profile_symbolicated.json');
     await symbolicatedFile.writeAsString(json.encode(symbolicatedProfile));
     print('Saved symbolicated profile to ${symbolicatedFile.absolute.path}');
 

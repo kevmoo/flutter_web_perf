@@ -1,3 +1,4 @@
 .dart_tool
 pubspec.lock
 sample_app/build
+flutter_web_perf/out/

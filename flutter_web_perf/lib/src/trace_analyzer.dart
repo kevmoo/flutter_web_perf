@@ -48,14 +48,37 @@ class TraceAnalyzer {
     final breakdownQuery = '''
       SELECT 
         CASE 
-          WHEN name LIKE '%Script::Execute%' THEN 'Scripting'
-          WHEN name LIKE '%Render%' THEN 'Rendering'
+          WHEN name = 'BUILD' OR name = 'Build' OR name LIKE 'BuildOwner%' THEN 'Flutter Build'
+          WHEN name = 'LAYOUT' OR name = 'Layout' OR name LIKE 'LAYOUT%' OR name LIKE 'RenderObject.performLayout%' THEN 'Flutter Layout'
+          WHEN name = 'PAINT' OR name = 'Paint' OR name LIKE 'PAINT%' OR name LIKE 'RenderObject.paint%' THEN 'Flutter Paint'
+          WHEN name = 'COMPOSITING' THEN 'Flutter Compositing'
+          WHEN name = 'Semantics' THEN 'Flutter Semantics'
+          WHEN name LIKE 'Raster%' THEN 'Engine Raster'
+          WHEN name LIKE '%Script::Execute%' THEN 'JS Scripting'
+          WHEN name LIKE '%Render%' THEN 'Browser Rendering'
           WHEN name LIKE '%GC%' OR cat LIKE '%gc%' THEN 'GC'
           ELSE 'Other'
         END AS category,
         SUM(dur) / 1000000.0 AS total_dur_ms
       FROM slice
-      WHERE name LIKE '%Script::Execute%' OR name LIKE '%Render%' OR name LIKE '%GC%' OR cat LIKE '%gc%'
+      WHERE name LIKE '%Script::Execute%' 
+         OR name LIKE '%Render%' 
+         OR name LIKE '%GC%' 
+         OR cat LIKE '%gc%'
+         OR name = 'BUILD'
+         OR name = 'Build'
+         OR name LIKE 'BuildOwner%'
+         OR name = 'LAYOUT'
+         OR name = 'Layout'
+         OR name LIKE 'LAYOUT%'
+         OR name LIKE 'RenderObject.performLayout%'
+         OR name = 'PAINT'
+         OR name = 'Paint'
+         OR name LIKE 'PAINT%'
+         OR name LIKE 'RenderObject.paint%'
+         OR name = 'COMPOSITING'
+         OR name = 'Semantics'
+         OR name LIKE 'Raster%'
       GROUP BY 1;
     ''';
 
