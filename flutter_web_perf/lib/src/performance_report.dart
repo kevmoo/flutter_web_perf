@@ -53,6 +53,7 @@ class HotFunction {
   final int? columnNumber;
   final int? wasmFunctionIndex;
   String? wasmInstructions;
+  String? githubUrl;
 
   HotFunction({
     required this.name,
@@ -62,5 +63,6 @@ class HotFunction {
     this.columnNumber,
     this.wasmFunctionIndex,
     this.wasmInstructions,
+    this.githubUrl,
   });
 }

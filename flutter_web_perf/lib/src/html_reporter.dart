@@ -49,6 +49,7 @@ class HtmlReporter {
         'tagText': isSdk ? 'SDK' : 'App',
         'hasWasm': wasmLines != null,
         'wasmLines': wasmLines,
+        'githubUrl': f.githubUrl,
       });
     }
 

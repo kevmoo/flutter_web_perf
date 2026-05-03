@@ -114,6 +114,19 @@ Future<void> runApp(List<String> arguments) async {
       profilePath: symbolicatedFile.path,
     );
 
+    // Get current Flutter SHA
+    String? flutterSha;
+    const localFlutterRepo = '/Users/kevmoo/github/flutter';
+    try {
+      final shaResult = await Process.run('git', [
+        'rev-parse',
+        'HEAD',
+      ], workingDirectory: localFlutterRepo);
+      if (shaResult.exitCode == 0) {
+        flutterSha = shaResult.stdout.toString().trim();
+      }
+    } catch (_) {}
+
     print('\n=== Performance Report Summary ===');
     print(
       'Average Frame Interval: '
@@ -143,12 +156,14 @@ Future<void> runApp(List<String> arguments) async {
       // Source-Aware Hotspot Analysis!
       if (f.url.contains('package:flutter/') && f.lineNumber != null) {
         try {
-          final localFlutterRepo =
-              '/Users/kevmoo/github/flutter'; // Assuming local checkout
-
           final suffix = f.url.split('package:flutter/').last;
           final localFilePath =
               '$localFlutterRepo/packages/flutter/lib/$suffix';
+
+          if (flutterSha != null) {
+            f.githubUrl =
+                'https://github.com/flutter/flutter/blob/$flutterSha/packages/flutter/lib/$suffix#L${f.lineNumber}';
+          }
 
           final sourceFile = File(localFilePath);
 
