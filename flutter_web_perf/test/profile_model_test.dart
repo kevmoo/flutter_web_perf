@@ -1,5 +1,5 @@
-import 'package:test/test.dart';
 import 'package:flutter_web_perf/src/profile_model.dart';
+import 'package:test/test.dart';
 
 void main() {
   group('CpuProfile Node parsing', () {

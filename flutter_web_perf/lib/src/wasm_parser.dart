@@ -24,8 +24,8 @@ Map<String, String> extractWasmFunctions(
           r';\))',
     );
 
-    bool inTargetFunction = false;
-    int openParentheses = 0;
+    var inTargetFunction = false;
+    var openParentheses = 0;
     final buffer = StringBuffer();
 
     for (var line in lines) {
@@ -55,7 +55,7 @@ Map<String, String> extractWasmFunctions(
 }
 
 int _countChar(String text, String char) {
-  int count = 0;
+  var count = 0;
   for (var i = 0; i < text.length; i++) {
     if (text[i] == char) count++;
   }

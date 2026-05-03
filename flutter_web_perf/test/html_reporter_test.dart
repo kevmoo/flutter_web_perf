@@ -1,6 +1,6 @@
-import 'package:test/test.dart';
 import 'package:flutter_web_perf/src/html_reporter.dart';
 import 'package:flutter_web_perf/src/performance_report.dart';
+import 'package:test/test.dart';
 
 void main() {
   group('HtmlReporter', () {

@@ -232,7 +232,7 @@ Future<void> runApp(List<String> arguments) async {
             final targetFunc = report.hotFunctions[analyzeHotspotRank - 1];
             if (targetFunc.wasmInstructions != null) {
               print(
-                '\nDeep Dive Analysis for #${analyzeHotspotRank}: ${targetFunc.name}\n',
+                '\nDeep Dive Analysis for #$analyzeHotspotRank: ${targetFunc.name}\n',
               );
               print(targetFunc.wasmInstructions);
             } else {
