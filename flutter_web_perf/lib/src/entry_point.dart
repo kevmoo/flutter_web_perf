@@ -2,12 +2,14 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:args/args.dart';
+import 'package:path/path.dart' as p;
 
 import 'chrome_controller.dart';
 import 'html_reporter.dart';
 import 'profile_symbolicator.dart';
 import 'server.dart';
 import 'trace_analyzer.dart';
+import 'wasm_parser.dart';
 
 enum CompileTarget { js, wasm }
 
@@ -176,45 +178,65 @@ Future<void> runApp(List<String> arguments) async {
       }
     }
 
-    if (analyzeHotspotRank != null && target == CompileTarget.wasm) {
-      if (analyzeHotspotRank >= 1 &&
-          analyzeHotspotRank <= report.hotFunctions.length) {
-        final targetFunc = report.hotFunctions[analyzeHotspotRank - 1];
-        final identifier =
-            targetFunc.wasmFunctionIndex?.toString() ?? targetFunc.name;
+    if (target == CompileTarget.wasm) {
+      print('\n=== Deep Dive Analysis: Extracting Wasm Disassembly ===');
+      final watFile = File(p.join(outDir.path, 'main.wat'));
 
-        if (identifier.isNotEmpty) {
-          print('\n=== Deep Dive Analysis: ${targetFunc.name} ===');
-          print('Extracting Wasm instructions for "$identifier"...\n');
+      // 1. Dump the entire Wasm module to WAT once (it's fast with wasm-tools)
+      final dumpResult = await Process.run('wasm-tools', [
+        'print',
+        '$buildPath/main.dart.wasm',
+        '-o',
+        watFile.path,
+      ]);
 
-          final extractorResult = await Process.run('dart', [
-            'run',
-            'tool/extract_wasm_func.dart',
-            '$buildPath/main.dart.wasm',
-            identifier,
-          ]);
+      if (dumpResult.exitCode == 0) {
+        // 2. Identify all identifiers (names or indices) we want to extract
+        final identifiers = report.hotFunctions
+            .map((f) => f.wasmFunctionIndex?.toString() ?? f.name)
+            .where((id) => id.isNotEmpty)
+            .toList();
 
-          if (extractorResult.exitCode == 0) {
-            final output = extractorResult.stdout.toString();
-            print(output);
-            targetFunc.wasmInstructions = output;
+        // 3. Extract all at once
+        final instructionsMap = extractWasmFunctions(watFile.path, identifiers);
+
+        // 4. Populate the report model
+        for (final f in report.hotFunctions) {
+          final id = f.wasmFunctionIndex?.toString() ?? f.name;
+          f.wasmInstructions = instructionsMap[id];
+        }
+
+        print(
+          'Successfully extracted disassembly for ${instructionsMap.length} hot functions.',
+        );
+
+        // Keep the console output logic for the specific rank requested
+        if (analyzeHotspotRank != null) {
+          if (analyzeHotspotRank >= 1 &&
+              analyzeHotspotRank <= report.hotFunctions.length) {
+            final targetFunc = report.hotFunctions[analyzeHotspotRank - 1];
+            if (targetFunc.wasmInstructions != null) {
+              print(
+                '\nDeep Dive Analysis for #${analyzeHotspotRank}: ${targetFunc.name}\n',
+              );
+              print(targetFunc.wasmInstructions);
+            } else {
+              print(
+                '\nError: Could not find instructions for "${targetFunc.name}".',
+              );
+            }
           } else {
-            print('Failed to extract Wasm:');
-            print(extractorResult.stderr);
+            print(
+              '\nError: --analyze-hotspot rank $analyzeHotspotRank is out of bounds.',
+            );
           }
-        } else {
-          print(
-            '\nError: Function "${targetFunc.name}" does not have a valid identifier.',
-          );
         }
       } else {
-        print(
-          '\nError: --analyze-hotspot rank $analyzeHotspotRank is out of bounds.',
-        );
+        print('Failed to dump WAT: ${dumpResult.stderr}');
       }
     }
 
-    // Generate HTML report (after we've potentially populated wasmInstructions)
+    // Generate HTML report (after we've populated wasmInstructions for everyone!)
     final htmlReporter = HtmlReporter();
     await htmlReporter.saveReport(report, 'out/report.html');
   } catch (e) {
