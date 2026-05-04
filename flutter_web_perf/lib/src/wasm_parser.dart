@@ -12,40 +12,43 @@ Map<String, String> extractWasmFunctions(
   final lines = file.readAsLinesSync();
   final results = <String, String>{};
 
+  // Pre-compile regexes for each identifier
+  final regexMap = <String, RegExp>{};
   for (final id in identifiers) {
-    if (results.containsKey(id)) continue;
-
     final escapedTarget = RegExp.escape(id);
-    // Match either the name (ending with $Target) or the exact index (;Target;)
-    // Wasm function names are often mangled, e.g. $_RootZone.runBinary
+    // Wasm names start with a literal $ (e.g. $runBinary).
+    // We escape the $ so it's not treated as an end-of-string anchor.
     final namePattern = r'\$.*' + escapedTarget + r'(\b|")';
     final indexPattern = r'\(;' + escapedTarget + r';\)';
-    final funcSignatureRegex = RegExp(
-      '(' + namePattern + '|' + indexPattern + ')',
-    );
+    regexMap[id] = RegExp('(' + namePattern + '|' + indexPattern + ')');
+  }
 
-    StringBuffer? buffer;
-    int openParentheses = 0;
+  // Single pass over the file to extract everything
+  for (var i = 0; i < lines.length; i++) {
+    final line = lines[i];
+    if (line.contains('(func ')) {
+      for (final entry in regexMap.entries) {
+        if (entry.value.hasMatch(line)) {
+          final id = entry.key;
+          if (results.containsKey(id)) continue;
 
-    for (var line in lines) {
-      if (buffer == null) {
-        if (line.contains('(func ') && funcSignatureRegex.hasMatch(line)) {
-          buffer = StringBuffer();
-          openParentheses += _countChar(line, '(') - _countChar(line, ')');
+          final buffer = StringBuffer();
+          int openParentheses = _countChar(line, '(') - _countChar(line, ')');
           buffer.writeln(_formatLine(line));
-          if (openParentheses <= 0) break; // One-liner
-        }
-      } else {
-        buffer.writeln(_formatLine(line));
-        openParentheses += _countChar(line, '(') - _countChar(line, ')');
-        if (openParentheses <= 0) {
-          break;
+
+          var j = i + 1;
+          while (openParentheses > 0 && j < lines.length) {
+            final nextLine = lines[j];
+            buffer.writeln(_formatLine(nextLine));
+            openParentheses +=
+                _countChar(nextLine, '(') - _countChar(nextLine, ')');
+            j++;
+          }
+
+          results[id] = buffer.toString().trim();
+          break; // Found a match for this line
         }
       }
-    }
-
-    if (buffer != null) {
-      results[id] = buffer.toString().trim();
     }
   }
 
