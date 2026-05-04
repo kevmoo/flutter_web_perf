@@ -20,7 +20,7 @@ Map<String, String> extractWasmFunctions(
     // We escape the $ so it's not treated as an end-of-string anchor.
     final namePattern = r'\$.*' + escapedTarget + r'(\b|")';
     final indexPattern = r'\(;' + escapedTarget + r';\)';
-    regexMap[id] = RegExp('(' + namePattern + '|' + indexPattern + ')');
+    regexMap[id] = RegExp('($namePattern|$indexPattern)');
   }
 
   // Single pass over the file to extract everything
@@ -33,7 +33,7 @@ Map<String, String> extractWasmFunctions(
           if (results.containsKey(id)) continue;
 
           final buffer = StringBuffer();
-          int openParentheses = _countChar(line, '(') - _countChar(line, ')');
+          var openParentheses = _countChar(line, '(') - _countChar(line, ')');
           buffer.writeln(_formatLine(line));
 
           var j = i + 1;
@@ -58,7 +58,7 @@ Map<String, String> extractWasmFunctions(
 String _formatLine(String l) => l.startsWith('  ') ? l.substring(2) : l;
 
 int _countChar(String text, String char) {
-  int count = 0;
+  var count = 0;
   for (var i = 0; i < text.length; i++) {
     if (text[i] == char) count++;
   }

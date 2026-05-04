@@ -79,8 +79,14 @@ class ChromeController {
         final params = notification.params as Map<String, dynamic>;
         final type = params['type'] as String;
         final args = params['args'] as List;
-        final message = args.isNotEmpty ? args[0]['value'] as String? : '';
-        if (message != null && message.toString().isNotEmpty) {
+        var message = '';
+        if (args.isNotEmpty) {
+          final firstArg = args[0];
+          if (firstArg is Map<String, dynamic>) {
+            message = firstArg['value'] as String? ?? '';
+          }
+        }
+        if (message.isNotEmpty) {
           print('Chrome Console [$type]: $message');
         }
       }

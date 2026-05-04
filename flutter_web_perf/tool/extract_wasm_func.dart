@@ -24,7 +24,8 @@ Future<void> main(List<String> args) async {
   var inTargetFunction = false;
   var openParentheses = 0;
 
-  // Match either the index (;123;) or the exact name $name or $"name with spaces"
+  // Match either the index (;123;) or the exact name $name or
+  // $"name with spaces"
   final escapedTarget = RegExp.escape(targetIdentifier);
   final funcSignatureRegex = RegExp(
     r'^\s*\(func (\$' +

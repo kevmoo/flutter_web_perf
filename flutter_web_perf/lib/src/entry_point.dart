@@ -222,7 +222,8 @@ Future<void> runApp(List<String> arguments) async {
         }
 
         print(
-          'Successfully extracted disassembly for ${instructionsMap.length} hot functions.',
+          'Successfully extracted disassembly for '
+          '${instructionsMap.length} hot functions.',
         );
 
         // Keep the console output logic for the specific rank requested
@@ -232,17 +233,20 @@ Future<void> runApp(List<String> arguments) async {
             final targetFunc = report.hotFunctions[analyzeHotspotRank - 1];
             if (targetFunc.wasmInstructions != null) {
               print(
-                '\nDeep Dive Analysis for #$analyzeHotspotRank: ${targetFunc.name}\n',
+                '\nDeep Dive Analysis for #$analyzeHotspotRank: '
+                '${targetFunc.name}\n',
               );
               print(targetFunc.wasmInstructions);
             } else {
               print(
-                '\nError: Could not find instructions for "${targetFunc.name}".',
+                '\nError: Could not find instructions for '
+                '"${targetFunc.name}".',
               );
             }
           } else {
             print(
-              '\nError: --analyze-hotspot rank $analyzeHotspotRank is out of bounds.',
+              '\nError: --analyze-hotspot rank $analyzeHotspotRank '
+              'is out of bounds.',
             );
           }
         }
@@ -251,7 +255,7 @@ Future<void> runApp(List<String> arguments) async {
       }
     }
 
-    // Generate HTML report (after we've populated wasmInstructions for everyone!)
+    // Generate HTML report (after populating wasmInstructions).
     final htmlReporter = HtmlReporter();
     await htmlReporter.saveReport(report, 'out/report.html');
   } catch (e) {

@@ -15,7 +15,8 @@ void main() {
       'runs wasm target and extracts hotspot',
       () async {
         print(
-          'Starting Wasm E2E run (this will take a while as it builds Flutter Web)...',
+          'Starting Wasm E2E run (this will take a while as it builds '
+          'Flutter Web)...',
         );
         final process = await Process.run('dart', [
           'run',
@@ -47,7 +48,8 @@ void main() {
               stdout.contains('Error: Function'),
           isTrue,
           reason:
-              'Should either perform analysis or gracefully report a missing index.',
+              'Should either perform analysis or gracefully report a '
+              'missing index.',
         );
 
         expect(File('out/trace.json').existsSync(), isTrue);
@@ -63,7 +65,8 @@ void main() {
 
     test('runs js target successfully', () async {
       print(
-        'Starting JS E2E run (this will take a while as it builds Flutter Web)...',
+        'Starting JS E2E run (this will take a while as it builds '
+        'Flutter Web)...',
       );
       final process = await Process.run('dart', [
         'run',

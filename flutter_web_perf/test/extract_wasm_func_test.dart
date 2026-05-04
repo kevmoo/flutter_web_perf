@@ -29,11 +29,13 @@ void main() {
     });
 
     test('extracts function by name', () async {
-      // Since our script uses `wasm-tools print` internally, we would need a real .wasm file to test the full script.
-      // But the script is just a wrapper around `wasm-tools print`.
-      // To test just the script's regex logic without depending on a valid wasm binary,
-      // we'd need to refactor the script. However, the E2E test already covers the execution of the script
-      // against a real Wasm file. Let's just assert that the script requires 2 arguments.
+      // Since our script uses `wasm-tools print` internally, we would need a
+      // real .wasm file to test the full script. But the script is just a
+      // wrapper around `wasm-tools print`.
+      // To test just the script's regex logic without depending on a valid
+      // wasm binary, we'd need to refactor the script. However, the E2E
+      // test already covers the execution of the script against a real
+      // Wasm file. Let's just assert that the script requires 2 arguments.
 
       final process = await Process.run('dart', [
         'run',
