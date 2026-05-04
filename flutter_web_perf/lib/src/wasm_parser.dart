@@ -19,7 +19,7 @@ Map<String, String> extractWasmFunctions(
     // Wasm names start with a literal $ (e.g. $runBinary).
     // We escape the $ so it's not treated as an end-of-string anchor.
     final namePattern = r'\$.*' + escapedTarget + r'(?:\s|\(|"|$)';
-    final indexPattern = r'\(;' + escapedTarget + r';\)';
+    final indexPattern = r'\(func[^\)]*\(;' + escapedTarget + r';\)';
     regexMap[id] = RegExp('($namePattern|$indexPattern)');
   }
 
