@@ -50,6 +50,7 @@ class HtmlReporter {
         'hasWasm': wasmLines != null,
         'wasmLines': wasmLines,
         'githubUrl': f.githubUrl,
+        'hasGithubUrl': f.githubUrl != null && f.githubUrl!.isNotEmpty,
       });
     }
 

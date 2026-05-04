@@ -288,12 +288,12 @@
             <td class="mono" style="{{#hasWasm}}border-bottom: none;{{/hasWasm}}">{{name}}</td>
             <td style="{{#hasWasm}}border-bottom: none;{{/hasWasm}}">
               <span class="{{tagClass}}">{{tagText}}</span> 
-              {{#githubUrl}}
+              {{#hasGithubUrl}}
               <a href="{{githubUrl}}" target="_blank" style="color: var(--accent-color); text-decoration: none; border-bottom: 1px dashed var(--accent-color);">{{url}}</a>
-              {{/githubUrl}}
-              {{^githubUrl}}
+              {{/hasGithubUrl}}
+              {{^hasGithubUrl}}
               {{url}}
-              {{/githubUrl}}
+              {{/hasGithubUrl}}
             </td>
             <td class="mono" style="{{#hasWasm}}border-bottom: none;{{/hasWasm}}">{{samples}}</td>
           </tr>

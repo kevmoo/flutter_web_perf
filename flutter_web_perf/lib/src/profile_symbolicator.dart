@@ -60,7 +60,21 @@ Future<Map<String, dynamic>> symbolicateProfile({
 
     if (line != null && column != null) {
       if (frame.url.contains('main.dart')) {
-        final span = mapping.spanFor(line, column);
+        SourceMapSpan? span = mapping.spanFor(line, column);
+
+        // Wasm source maps often don't have an entry for every single byte offset.
+        // If an exact match fails, scan backwards a few bytes to find the nearest mapping.
+        if (span == null) {
+          for (
+            var offset = column - 1;
+            offset >= 0 && offset > column - 20;
+            offset--
+          ) {
+            span = mapping.spanFor(line, offset);
+            if (span != null) break;
+          }
+        }
+
         if (span != null) {
           if (span.text.isNotEmpty) {
             frame.functionName = span.text;

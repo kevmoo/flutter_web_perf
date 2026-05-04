@@ -13,32 +13,30 @@ Map<String, String> extractWasmFunctions(
   final results = <String, String>{};
 
   for (final id in identifiers) {
+    if (results.containsKey(id)) continue;
+
     final escapedTarget = RegExp.escape(id);
+    // Match either the name (ending with $Target) or the exact index (;Target;)
+    // Wasm function names are often mangled, e.g. $_RootZone.runBinary
+    final namePattern = r'\$.*' + escapedTarget + r'(\b|")';
+    final indexPattern = r'\(;' + escapedTarget + r';\)';
     final funcSignatureRegex = RegExp(
-      r'^\s*\(func (\$' +
-          escapedTarget +
-          r'\b|\$"' +
-          escapedTarget +
-          r'"|.*\(;' +
-          escapedTarget +
-          r';\))',
+      '(' + namePattern + '|' + indexPattern + ')',
     );
 
-    var inTargetFunction = false;
-    var openParentheses = 0;
-    final buffer = StringBuffer();
+    StringBuffer? buffer;
+    int openParentheses = 0;
 
     for (var line in lines) {
-      String formatLine(String l) => l.startsWith('  ') ? l.substring(2) : l;
-
-      if (!inTargetFunction) {
-        if (funcSignatureRegex.hasMatch(line)) {
-          inTargetFunction = true;
+      if (buffer == null) {
+        if (line.contains('(func ') && funcSignatureRegex.hasMatch(line)) {
+          buffer = StringBuffer();
           openParentheses += _countChar(line, '(') - _countChar(line, ')');
-          buffer.writeln(formatLine(line));
+          buffer.writeln(_formatLine(line));
+          if (openParentheses <= 0) break; // One-liner
         }
       } else {
-        buffer.writeln(formatLine(line));
+        buffer.writeln(_formatLine(line));
         openParentheses += _countChar(line, '(') - _countChar(line, ')');
         if (openParentheses <= 0) {
           break;
@@ -46,7 +44,7 @@ Map<String, String> extractWasmFunctions(
       }
     }
 
-    if (buffer.isNotEmpty) {
+    if (buffer != null) {
       results[id] = buffer.toString().trim();
     }
   }
@@ -54,8 +52,10 @@ Map<String, String> extractWasmFunctions(
   return results;
 }
 
+String _formatLine(String l) => l.startsWith('  ') ? l.substring(2) : l;
+
 int _countChar(String text, String char) {
-  var count = 0;
+  int count = 0;
   for (var i = 0; i < text.length; i++) {
     if (text[i] == char) count++;
   }
