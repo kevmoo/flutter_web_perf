@@ -1,5 +1,6 @@
 import 'dart:io';
 import 'package:test/test.dart';
+import 'package:flutter_web_perf/src/wasm_parser.dart';
 
 void main() {
   group('extract_wasm_func', () {
@@ -16,6 +17,7 @@ void main() {
     drop
   )
   (func \$otherFunc (;1;) (type 0)
+    global.get \$"C455 )"
     nop
   )
 )
@@ -28,24 +30,15 @@ void main() {
       }
     });
 
-    test('extracts function by name', () async {
-      // Since our script uses `wasm-tools print` internally, we would need a
-      // real .wasm file to test the full script. But the script is just a
-      // wrapper around `wasm-tools print`.
-      // To test just the script's regex logic without depending on a valid
-      // wasm binary, we'd need to refactor the script. However, the E2E
-      // test already covers the execution of the script against a real
-      // Wasm file. Let's just assert that the script requires 2 arguments.
+    test('extracts function by name', () {
+      final results = extractWasmFunctions(tempWatFile.path, ['testFunc']);
+      expect(results['testFunc'], contains('i32.const 42'));
+    });
 
-      final process = await Process.run('dart', [
-        'run',
-        'tool/extract_wasm_func.dart',
-      ]);
-      expect(process.exitCode, isNot(0));
-      expect(
-        process.stdout.toString(),
-        contains('Usage: dart run tool/extract_wasm_func.dart'),
-      );
+    test('extracts function with string containing unbalanced parentheses', () {
+      final results = extractWasmFunctions(tempWatFile.path, ['otherFunc']);
+      expect(results['otherFunc'], contains('nop'));
+      expect(results['otherFunc'], endsWith(')'));
     });
   });
 }

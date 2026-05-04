@@ -18,7 +18,7 @@ Map<String, String> extractWasmFunctions(
     final escapedTarget = RegExp.escape(id);
     // Wasm names start with a literal $ (e.g. $runBinary).
     // We escape the $ so it's not treated as an end-of-string anchor.
-    final namePattern = r'\$.*' + escapedTarget + r'(\b|")';
+    final namePattern = r'\$.*' + escapedTarget + r'(?:\s|\(|"|$)';
     final indexPattern = r'\(;' + escapedTarget + r';\)';
     regexMap[id] = RegExp('($namePattern|$indexPattern)');
   }
@@ -33,15 +33,56 @@ Map<String, String> extractWasmFunctions(
           if (results.containsKey(id)) continue;
 
           final buffer = StringBuffer();
-          var openParentheses = _countChar(line, '(') - _countChar(line, ')');
-          buffer.writeln(_formatLine(line));
+          int openParentheses = 0;
+          bool inString = false;
+          int blockCommentDepth = 0;
+
+          void processLine(String l) {
+            buffer.writeln(_formatLine(l));
+            for (var c = 0; c < l.length; c++) {
+              final char = l[c];
+
+              if (inString) {
+                if (char == '"') {
+                  int backslashes = 0;
+                  for (var k = c - 1; k >= 0 && l[k] == '\\'; k--) {
+                    backslashes++;
+                  }
+                  if (backslashes % 2 == 0) {
+                    inString = false;
+                  }
+                }
+              } else if (blockCommentDepth > 0) {
+                if (char == '(' && c + 1 < l.length && l[c + 1] == ';') {
+                  blockCommentDepth++;
+                  c++;
+                } else if (char == ';' && c + 1 < l.length && l[c + 1] == ')') {
+                  blockCommentDepth--;
+                  c++; // skip ')'
+                }
+              } else {
+                if (char == '"') {
+                  inString = true;
+                } else if (char == '(' && c + 1 < l.length && l[c + 1] == ';') {
+                  blockCommentDepth++;
+                  c++; // skip ';'
+                } else if (char == '(') {
+                  openParentheses++;
+                } else if (char == ')') {
+                  openParentheses--;
+                } else if (char == ';' && c + 1 < l.length && l[c + 1] == ';') {
+                  // line comment, stop processing this line
+                  break;
+                }
+              }
+            }
+          }
+
+          processLine(line);
 
           var j = i + 1;
           while (openParentheses > 0 && j < lines.length) {
-            final nextLine = lines[j];
-            buffer.writeln(_formatLine(nextLine));
-            openParentheses +=
-                _countChar(nextLine, '(') - _countChar(nextLine, ')');
+            processLine(lines[j]);
             j++;
           }
 
@@ -56,11 +97,3 @@ Map<String, String> extractWasmFunctions(
 }
 
 String _formatLine(String l) => l.startsWith('  ') ? l.substring(2) : l;
-
-int _countChar(String text, String char) {
-  var count = 0;
-  for (var i = 0; i < text.length; i++) {
-    if (text[i] == char) count++;
-  }
-  return count;
-}

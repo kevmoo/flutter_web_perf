@@ -58,19 +58,23 @@ Future<Map<String, dynamic>> symbolicateProfile({
     final line = frame.lineNumber;
     final column = frame.columnNumber;
 
+    final isWasmMap = sourceMapPath.contains('wasm');
+    final shouldSymbolicate = isWasmMap
+        ? frame.url.contains('main.dart.wasm')
+        : frame.url.contains('main.dart.js');
+
     if (line != null && column != null) {
-      if (frame.url.contains('main.dart')) {
+      if (shouldSymbolicate) {
         var span = mapping.spanFor(line, column);
 
-        // Wasm source maps often don't have an entry for every single byte
-        // offset. If an exact match fails, scan backwards a few bytes to find
-        // the nearest mapping.
+        // Wasm source maps often don't have an entry for the function prologue.
+        // If spanFor returns null (meaning we are before the first entry),
+        // or if it returns a span but we want to be robust, we can scan forwards.
+        // Actually, spanFor returns the *preceding* mapping. If we are in a prologue,
+        // it might return the previous function's mapping.
+        // But for now, let's fix the case where spanFor is null by scanning forwards.
         if (span == null) {
-          for (
-            var offset = column - 1;
-            offset >= 0 && offset > column - 20;
-            offset--
-          ) {
+          for (var offset = column; offset < column + 100; offset++) {
             span = mapping.spanFor(line, offset);
             if (span != null) break;
           }

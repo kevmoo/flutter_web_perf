@@ -168,70 +168,58 @@ class TraceAnalyzer {
       }
     }
 
-    final inclusiveFunctionCounts = <String, int>{};
+    final exclusiveFunctionCounts = <String, int>{};
     final functionUrls = <String, String>{};
     // Track the hottest line number for a given function name
     final functionLineCounts = <String, Map<int, int>>{};
     final functionWasmIndices = <String, int?>{};
 
     for (final leafNodeId in profile.samples) {
-      var currentNodeId = leafNodeId;
-      final seenFunctionsInStack = <String>{};
+      final node = nodeMap[leafNodeId];
+      if (node == null) continue;
 
-      while (currentNodeId != -1) {
-        final node = nodeMap[currentNodeId];
-        if (node == null) break;
+      final frame = node.callFrame;
+      final functionName = frame.functionName;
+      final url = normalizeLocation(frame.url);
 
-        final frame = node.callFrame;
-        final functionName = frame.functionName;
-        final url = normalizeLocation(frame.url);
+      var key = functionName;
+      if (!expandCanvaskitFrames &&
+          (url.contains('canvaskit.wasm') || url.contains('skwasm.wasm'))) {
+        key = 'CanvasKit Wasm (collapsed)';
+      }
 
-        var key = functionName;
-        if (!expandCanvaskitFrames &&
-            (url.contains('canvaskit.wasm') || url.contains('skwasm.wasm'))) {
-          key = 'CanvasKit Wasm (collapsed)';
+      if (key.isNotEmpty &&
+          key != '(root)' &&
+          key != '(program)' &&
+          key != '(idle)' &&
+          key != '(garbage collector)' &&
+          !key.startsWith('js-to-wasm') &&
+          !key.startsWith('wasm-to-js') &&
+          !key.startsWith('_JS_Trampoline_') &&
+          !key.startsWith('closure wrapper') &&
+          !key.startsWith('_RootZone') &&
+          !key.startsWith('_MixinApplication') &&
+          key != 'invoke' &&
+          key != '_reportTaskEvent') {
+        exclusiveFunctionCounts[key] = (exclusiveFunctionCounts[key] ?? 0) + 1;
+        functionUrls[key] = url;
+
+        final lineNumber = frame.lineNumber;
+        if (lineNumber != null && lineNumber >= 0) {
+          final lineMap = functionLineCounts.putIfAbsent(
+            key,
+            () => <int, int>{},
+          );
+          lineMap[lineNumber] = (lineMap[lineNumber] ?? 0) + 1;
         }
 
-        if (key.isNotEmpty &&
-            key != '(root)' &&
-            key != '(program)' &&
-            key != '(idle)' &&
-            key != '(garbage collector)' &&
-            !key.startsWith('js-to-wasm') &&
-            !key.startsWith('wasm-to-js') &&
-            !key.startsWith('_JS_Trampoline_') &&
-            !key.startsWith('closure wrapper') &&
-            !key.startsWith('_RootZone') &&
-            !key.startsWith('_MixinApplication') &&
-            key != 'invoke' &&
-            key != '_reportTaskEvent' &&
-            key.length > 2) {
-          if (seenFunctionsInStack.add(key)) {
-            inclusiveFunctionCounts[key] =
-                (inclusiveFunctionCounts[key] ?? 0) + 1;
-            functionUrls[key] = url;
-
-            final lineNumber = frame.lineNumber;
-            if (lineNumber != null && lineNumber >= 0) {
-              final lineMap = functionLineCounts.putIfAbsent(
-                key,
-                () => <int, int>{},
-              );
-              lineMap[lineNumber] = (lineMap[lineNumber] ?? 0) + 1;
-            }
-
-            if (frame.wasmFunctionIndex != null) {
-              functionWasmIndices[key] = frame.wasmFunctionIndex;
-            }
-          }
+        if (frame.wasmFunctionIndex != null) {
+          functionWasmIndices[key] = frame.wasmFunctionIndex;
         }
-
-        currentNodeId = parentMap[currentNodeId] ?? -1;
-        if (currentNodeId == -1) break;
       }
     }
 
-    final sortedFunctions = inclusiveFunctionCounts.entries.toList()
+    final sortedFunctions = exclusiveFunctionCounts.entries.toList()
       ..sort((a, b) => b.value.compareTo(a.value));
 
     final hotFunctions = <HotFunction>[];

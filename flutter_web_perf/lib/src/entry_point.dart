@@ -19,7 +19,7 @@ Future<void> runApp(List<String> arguments) async {
       'target',
       abbr: 't',
       allowed: ['js', 'wasm'],
-      defaultsTo: 'js',
+      defaultsTo: 'wasm',
       help: 'The compile target for the web app.',
     )
     ..addOption(
