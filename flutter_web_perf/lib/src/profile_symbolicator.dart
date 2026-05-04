@@ -69,10 +69,11 @@ Future<Map<String, dynamic>> symbolicateProfile({
 
         // Wasm source maps often don't have an entry for the function prologue.
         // If spanFor returns null (meaning we are before the first entry),
-        // or if it returns a span but we want to be robust, we can scan forwards.
-        // Actually, spanFor returns the *preceding* mapping. If we are in a prologue,
-        // it might return the previous function's mapping.
-        // But for now, let's fix the case where spanFor is null by scanning forwards.
+        // or if it returns a span but we want to be robust, we can scan
+        // forwards. Actually, spanFor returns the *preceding* mapping. If we
+        // are in a prologue, it might return the previous function's mapping.
+        // But for now, let's fix the case where spanFor is null by scanning
+        // forwards.
         if (span == null) {
           for (var offset = column; offset < column + 100; offset++) {
             span = mapping.spanFor(line, offset);

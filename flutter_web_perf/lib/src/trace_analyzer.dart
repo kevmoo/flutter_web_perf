@@ -158,6 +158,17 @@ class TraceAnalyzer {
       json.decode(content) as Map<String, dynamic>,
     );
 
+    final hotFunctions = processProfile(profile);
+
+    return PerformanceReport(
+      frameHealth: frameHealth,
+      timeBreakdown: breakdown,
+      slowTasks: [], // TODO: Add slow tasks query if needed
+      hotFunctions: hotFunctions,
+    );
+  }
+
+  List<HotFunction> processProfile(CpuProfile profile) {
     final nodeMap = <int, CpuProfileNode>{};
     final parentMap = <int, int>{};
 
@@ -170,51 +181,100 @@ class TraceAnalyzer {
 
     final exclusiveFunctionCounts = <String, int>{};
     final functionUrls = <String, String>{};
-    // Track the hottest line number for a given function name
     final functionLineCounts = <String, Map<int, int>>{};
     final functionWasmIndices = <String, int?>{};
 
-    for (final leafNodeId in profile.samples) {
-      final node = nodeMap[leafNodeId];
-      if (node == null) continue;
-
+    bool isInternalOrInterop(CpuProfileNode node) {
       final frame = node.callFrame;
-      final functionName = frame.functionName;
-      final url = normalizeLocation(frame.url);
+      final url = frame.url;
+      final name = frame.functionName;
 
-      var key = functionName;
-      if (!expandCanvaskitFrames &&
-          (url.contains('canvaskit.wasm') || url.contains('skwasm.wasm'))) {
-        key = 'CanvasKit Wasm (collapsed)';
+      // 1. V8 Internals and generic engine frames often have empty URLs or
+      // are explicitly named.
+      if (url.isEmpty) {
+        return true;
       }
 
-      if (key.isNotEmpty &&
-          key != '(root)' &&
-          key != '(program)' &&
-          key != '(idle)' &&
-          key != '(garbage collector)' &&
-          !key.startsWith('js-to-wasm') &&
-          !key.startsWith('wasm-to-js') &&
-          !key.startsWith('_JS_Trampoline_') &&
-          !key.startsWith('closure wrapper') &&
-          !key.startsWith('_RootZone') &&
-          !key.startsWith('_MixinApplication') &&
-          key != 'invoke' &&
-          key != '_reportTaskEvent') {
-        exclusiveFunctionCounts[key] = (exclusiveFunctionCounts[key] ?? 0) + 1;
-        functionUrls[key] = url;
+      // 2. JS Interop wrappers in Wasm builds. These are minified (e.g. gD, hD)
+      // and represent the boundary between Dart and the Browser DOM/APIs.
+      // We want to collapse these so the sample is attributed to the Dart code
+      // that initiated the interop.
+      if (url.endsWith('.mjs') || url.endsWith('.js')) {
+        return true;
+      }
+
+      // 3. Dart infrastructure that we want to collapse to see the actual user/framework work.
+      if (url.startsWith('dart:developer') || url.startsWith('dart:_')) {
+        return true;
+      }
+
+      // 4. Raw wasm functions (unmapped trampolines).
+      if (name.startsWith('wasm-function[') &&
+          frame.wasmFunctionIndex == null) {
+        return true;
+      }
+
+      // We no longer use a massive list of magic strings.
+      // If it's a Dart frame (has a dart:, package:, or .wasm URL), we keep it!
+      return false;
+    }
+
+    for (final leafNodeId in profile.samples) {
+      int? currentNodeId = leafNodeId;
+      CpuProfileNode? meaningfulNode;
+      var meaningfulKey = '';
+      var meaningfulUrl = '';
+
+      while (currentNodeId != null) {
+        final node = nodeMap[currentNodeId];
+        if (node == null) break;
+
+        final frame = node.callFrame;
+        final key = frame.functionName;
+        final url = normalizeLocation(frame.url);
+
+        // Check if we should collapse CanvasKit
+        if (!expandCanvaskitFrames &&
+            (url.contains('canvaskit.wasm') || url.contains('skwasm.wasm'))) {
+          meaningfulNode = node;
+          meaningfulKey = 'CanvasKit Wasm (collapsed)';
+          meaningfulUrl = url;
+          break;
+        }
+
+        // If it's not an internal/interop frame, we've found our true caller!
+        if (!isInternalOrInterop(node)) {
+          // One final check: if the name is empty, we probably shouldn't
+          // use it.
+          if (key.isNotEmpty) {
+            meaningfulNode = node;
+            meaningfulKey = key;
+            meaningfulUrl = url;
+            break;
+          }
+        }
+
+        // Walk up the call stack
+        currentNodeId = parentMap[currentNodeId];
+      }
+
+      if (meaningfulNode != null) {
+        final frame = meaningfulNode.callFrame;
+        exclusiveFunctionCounts[meaningfulKey] =
+            (exclusiveFunctionCounts[meaningfulKey] ?? 0) + 1;
+        functionUrls[meaningfulKey] = meaningfulUrl;
 
         final lineNumber = frame.lineNumber;
         if (lineNumber != null && lineNumber >= 0) {
           final lineMap = functionLineCounts.putIfAbsent(
-            key,
+            meaningfulKey,
             () => <int, int>{},
           );
           lineMap[lineNumber] = (lineMap[lineNumber] ?? 0) + 1;
         }
 
         if (frame.wasmFunctionIndex != null) {
-          functionWasmIndices[key] = frame.wasmFunctionIndex;
+          functionWasmIndices[meaningfulKey] = frame.wasmFunctionIndex;
         }
       }
     }
@@ -246,11 +306,6 @@ class TraceAnalyzer {
       );
     }
 
-    return PerformanceReport(
-      frameHealth: frameHealth,
-      timeBreakdown: breakdown,
-      slowTasks: [], // TODO: Add slow tasks query if needed
-      hotFunctions: hotFunctions,
-    );
+    return hotFunctions;
   }
 }
