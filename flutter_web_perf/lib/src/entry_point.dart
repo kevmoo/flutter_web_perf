@@ -39,67 +39,83 @@ Future<void> runApp(List<String> arguments) async {
   print('Hello from flutter_web_perf tool!');
   print('Target: $targetStr');
 
-  // 1. Build the app
   final appDir = '../sample_app';
-  print('Building app in $appDir...');
-  final buildArgs = ['build', 'web', '--profile', '--source-maps'];
-  if (target == CompileTarget.wasm) {
-    buildArgs.add('--wasm');
+  final buildPath = '$appDir/build/web';
+  final outDir = Directory('out');
+  if (!await outDir.exists()) {
+    await outDir.create();
   }
-
-  final buildResult = await Process.run(
-    'flutter',
-    buildArgs,
-    workingDirectory: appDir,
-  );
-  if (buildResult.exitCode != 0) {
-    print('Build failed!');
-    print(buildResult.stderr);
-    exitCode = buildResult.exitCode;
-    return;
-  }
-  print('Build successful.');
 
   final server = DevServer();
   final controller = ChromeController();
 
   try {
-    final buildPath = '$appDir/build/web';
-    final port = await server.start(buildPath);
-    final url = 'http://localhost:$port';
+    Future<void> runFlutterBuild(List<String> args) async {
+      final buildResult = await Process.run(
+        'flutter',
+        args,
+        workingDirectory: appDir,
+      );
+      if (buildResult.exitCode != 0) {
+        throw Exception('Build failed!\n${buildResult.stderr}');
+      }
+      print('Build successful.');
+    }
 
+    // --- PHASE 1: TRACE RUN ---
+    print('\n=== Phase 1: Trace Run (--profile) ===');
+    print('Building app in $appDir...');
+    final traceBuildArgs = ['build', 'web', '--profile', '--source-maps'];
+    if (target == CompileTarget.wasm) traceBuildArgs.add('--wasm');
+    await runFlutterBuild(traceBuildArgs);
+
+    var port = await server.start(buildPath);
+    var url = 'http://localhost:$port';
     await controller.start(url);
     print('Chrome started and navigated to $url');
 
     await controller.startTracing();
-    await controller.startProfiling();
-
-    // Wait a bit to collect data
     await Future<void>.delayed(const Duration(seconds: 5));
-
-    final profile = await controller.stopProfiling();
     final events = await controller.stopTracing();
 
     print('Collected ${events.length} trace events.');
+    final traceFile = File('out/trace.json');
+    await traceFile.writeAsString(json.encode(events));
+    print('Saved trace data to ${traceFile.absolute.path}');
 
-    final outDir = Directory('out');
-    if (!await outDir.exists()) {
-      await outDir.create();
-    }
+    await controller.stop();
+    await server.stop();
 
-    final file = File('out/trace.json');
-    await file.writeAsString(json.encode(events));
-    print('Saved trace data to ${file.absolute.path}');
+    // --- PHASE 2: PROFILE RUN ---
+    print('\n=== Phase 2: Profile Run (--release) ===');
+    print('Building app in $appDir...');
+    final profileBuildArgs = ['build', 'web', '--release', '--source-maps'];
+    if (target == CompileTarget.wasm) profileBuildArgs.add('--wasm');
+    await runFlutterBuild(profileBuildArgs);
+
+    port = await server.start(buildPath);
+    url = 'http://localhost:$port';
+    await controller.start(url);
+    print('Chrome started and navigated to $url');
+
+    await controller.startProfiling();
+    await Future<void>.delayed(const Duration(seconds: 5));
+    final profile = await controller.stopProfiling();
 
     final profileFile = File('out/profile.json');
     await profileFile.writeAsString(json.encode(profile));
     print('Saved profile data to ${profileFile.absolute.path}');
 
+    await controller.stop();
+    await server.stop();
+
+    // --- ANALYSIS ---
+    print('\n=== Phase 3: Analysis ===');
     final mapPath = target == CompileTarget.wasm
         ? '$buildPath/main.dart.wasm.map'
         : '$buildPath/main.dart.js.map';
 
-    final analyzer = TraceAnalyzer(file.path, sourceMapPath: mapPath);
+    final analyzer = TraceAnalyzer(traceFile.path, sourceMapPath: mapPath);
 
     final symbolicatedProfile = await symbolicateProfile(
       profilePath: profileFile.path,

@@ -158,9 +158,20 @@ class ChromeController {
 
   Future<void> stop() async {
     await _connection?.close();
+    _connection = null;
+
     _chromeProcess?.kill();
     // Wait for process to exit to release file locks
     await _chromeProcess?.exitCode;
-    await _tempDir?.delete(recursive: true);
+    _chromeProcess = null;
+
+    if (_tempDir != null && await _tempDir!.exists()) {
+      try {
+        await _tempDir!.delete(recursive: true);
+      } catch (_) {
+        // Ignore file deletion errors.
+      }
+    }
+    _tempDir = null;
   }
 }
