@@ -1,6 +1,7 @@
 import 'dart:io';
-import 'package:test/test.dart';
+
 import 'package:flutter_web_perf/src/wasm_parser.dart';
+import 'package:test/test.dart';
 
 void main() {
   group('extract_wasm_func', () {

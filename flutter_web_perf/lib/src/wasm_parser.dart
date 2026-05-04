@@ -33,9 +33,9 @@ Map<String, String> extractWasmFunctions(
           if (results.containsKey(id)) continue;
 
           final buffer = StringBuffer();
-          int openParentheses = 0;
-          bool inString = false;
-          int blockCommentDepth = 0;
+          var openParentheses = 0;
+          var inString = false;
+          var blockCommentDepth = 0;
 
           void processLine(String l) {
             buffer.writeln(_formatLine(l));
@@ -44,11 +44,11 @@ Map<String, String> extractWasmFunctions(
 
               if (inString) {
                 if (char == '"') {
-                  int backslashes = 0;
+                  var backslashes = 0;
                   for (var k = c - 1; k >= 0 && l[k] == '\\'; k--) {
                     backslashes++;
                   }
-                  if (backslashes % 2 == 0) {
+                  if (backslashes.isEven) {
                     inString = false;
                   }
                 }

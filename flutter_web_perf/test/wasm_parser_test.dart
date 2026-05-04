@@ -1,6 +1,7 @@
-import 'package:test/test.dart';
-import 'package:flutter_web_perf/src/wasm_parser.dart';
 import 'dart:io';
+
+import 'package:flutter_web_perf/src/wasm_parser.dart';
+import 'package:test/test.dart';
 
 void main() {
   test('extractWasmFunctions handles strings with parentheses', () {
