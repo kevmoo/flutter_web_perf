@@ -10,6 +10,15 @@ Map<String, String> extractWasmFunctions(
   if (!file.existsSync()) return {};
 
   final lines = file.readAsLinesSync();
+  return parseWasmFunctions(lines, identifiers);
+}
+
+/// Parses multiple functions from WAT lines by their names or indices.
+/// Returns a map of identifier -> instructions.
+Map<String, String> parseWasmFunctions(
+  List<String> lines,
+  List<String> identifiers,
+) {
   final results = <String, String>{};
 
   // Pre-compile regexes for each identifier
