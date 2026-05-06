@@ -36,6 +36,7 @@ Future<void> runApp({
 
   final traceFile = File(p.join(destinationDir.path, 'trace.json'));
   final profileFile = File(p.join(destinationDir.path, 'profile.json'));
+  final allocationsFile = File(p.join(destinationDir.path, 'allocations.json'));
 
   if (analyzeOnly) {
     if (!traceFile.existsSync() || !profileFile.existsSync()) {
@@ -133,11 +134,15 @@ Future<void> runApp({
       print('Chrome started and navigated to $url');
 
       await controller.startProfiling();
+      await controller.startHeapAllocationProfiling();
       await Future<void>.delayed(const Duration(seconds: 5));
       final profile = await controller.stopProfiling();
+      final allocations = await controller.stopHeapAllocationProfiling();
 
       await profileFile.writeAsString(json.encode(profile));
       print('Saved profile data to ${profileFile.absolute.path}');
+      await allocationsFile.writeAsString(json.encode(allocations));
+      print('Saved heap allocation data to ${allocationsFile.absolute.path}');
 
       await controller.stop();
       await server.stop();
@@ -165,6 +170,68 @@ Future<void> runApp({
     final report = await analyzer.generateReport(
       profilePath: symbolicatedFile.path,
     );
+
+    // Parse and attribute dynamic memory allocations from Heap Sampler
+    if (allocationsFile.existsSync()) {
+      try {
+        final heapContent = allocationsFile.readAsStringSync();
+        final heapData = json.decode(heapContent) as Map<String, dynamic>;
+        final head = heapData['head'] as Map<String, dynamic>?;
+        if (head != null) {
+          final allocationsByFunction = <String, num>{};
+          final allocationsByWasmIndex = <int, num>{};
+
+          var totalAllocatedBytes = 0;
+
+          void accumulate(Map<String, dynamic> node) {
+            final callFrame = node['callFrame'] as Map<String, dynamic>?;
+            final selfSize = node['selfSize'] as num? ?? 0;
+            if (selfSize > 0) {
+              totalAllocatedBytes += selfSize.toInt();
+              final functionName = callFrame?['functionName'] as String? ?? '';
+              final wasmMatch = RegExp(
+                r'wasm-function\[(\d+)\]',
+              ).firstMatch(functionName);
+              if (wasmMatch != null) {
+                final index = int.parse(wasmMatch.group(1)!);
+                allocationsByWasmIndex[index] =
+                    (allocationsByWasmIndex[index] ?? 0) + selfSize;
+              } else {
+                allocationsByFunction[functionName] =
+                    (allocationsByFunction[functionName] ?? 0) + selfSize;
+              }
+            }
+
+            final children = node['children'] as List?;
+            if (children != null) {
+              for (final child in children) {
+                if (child is Map<String, dynamic>) {
+                  accumulate(child);
+                }
+              }
+            }
+          }
+
+          accumulate(head);
+          report.frameHealth.totalAllocatedBytes = totalAllocatedBytes;
+
+          // Attribute to HotFunction list
+          for (final f in report.hotFunctions) {
+            num? allocatedBytes;
+            if (f.wasmFunctionIndex != null) {
+              allocatedBytes = allocationsByWasmIndex[f.wasmFunctionIndex!];
+            }
+            allocatedBytes ??= allocationsByFunction[f.name];
+
+            if (allocatedBytes != null) {
+              f.allocationsBytes = allocatedBytes.toInt();
+            }
+          }
+        }
+      } catch (e) {
+        print('Warning: Failed to parse allocations profile: $e');
+      }
+    }
 
     // Get current Flutter SHA
     String? flutterSha;

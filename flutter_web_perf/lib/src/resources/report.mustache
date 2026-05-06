@@ -352,6 +352,12 @@
           <span class="metric-label">Drop Rate</span>
           <span class="metric-value danger">{{frameHealth.dropRate}}%</span>
         </div>
+        {{#frameHealth.hasAllocatedBytes}}
+        <div class="metric">
+          <span class="metric-label">Dynamic Memory Churn</span>
+          <span class="metric-value danger" style="color: #ef4444; text-shadow: 0 0 4px rgba(239, 68, 68, 0.2);">{{frameHealth.totalAllocatedText}}</span>
+        </div>
+        {{/frameHealth.hasAllocatedBytes}}
         <div class="metric">
           <span class="metric-label">Requested Frames</span>
           <span class="metric-value">{{frameHealth.requestedCount}}</span>
@@ -382,12 +388,13 @@
     <!-- Hot Functions -->
     <div class="card" style="width: 100%;">
       <h2>Top 10 Hot Functions</h2>
-      <table>
+       <table>
         <thead>
           <tr>
             <th style="width: 5%;">#</th>
-            <th style="width: 40%;">Function</th>
+            <th style="width: 30%;">Function</th>
             <th style="width: 35%;">Location</th>
+            <th style="width: 10%;">Allocated</th>
             <th style="width: 10%;">Est. CPU</th>
             <th style="width: 10%;">Samples / %</th>
           </tr>
@@ -406,6 +413,10 @@
               {{url}}
               {{/hasGithubUrl}}
             </td>
+            <td class="mono" style="{{#hasWasm}}border-bottom: none;{{/hasWasm}}">
+              {{#hasAllocations}}<span style="color: var(--danger-color); font-weight: 600;">{{allocationsText}}</span>{{/hasAllocations}}
+              {{^hasAllocations}}<span style="color: var(--secondary-color);">-</span>{{/hasAllocations}}
+            </td>
             <td class="mono" style="{{#hasWasm}}border-bottom: none;{{/hasWasm}}">{{estimatedMs}} ms</td>
             <td class="mono" style="{{#hasWasm}}border-bottom: none;{{/hasWasm}}">
               {{samples}} <span style="color: var(--secondary-color); font-size: 0.75rem; font-weight: normal;">({{percent}}%)</span>
@@ -414,7 +425,7 @@
           {{#hasWasm}}
           <tr>
             <td></td>
-            <td colspan="4" style="padding-top: 0; padding-bottom: 1.5rem;">
+            <td colspan="5" style="padding-top: 0; padding-bottom: 1.5rem;">
               <details style="cursor: pointer;">
                 <summary style="color: var(--accent-color); font-size: 0.8rem; margin-bottom: 0.75rem;">View Wasm Instructions</summary>
                 

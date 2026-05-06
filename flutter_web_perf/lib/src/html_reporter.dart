@@ -147,6 +147,10 @@ class HtmlReporter {
         'hasWasmAnalysis': wasmAnalysisData != null,
         'wasmUnoptAnalysis': wasmUnoptAnalysisData,
         'hasWasmUnoptAnalysis': wasmUnoptAnalysisData != null,
+        'allocationsText': f.allocationsBytes != null
+            ? _formatBytes(f.allocationsBytes!)
+            : null,
+        'hasAllocations': f.allocationsBytes != null && f.allocationsBytes! > 0,
         'githubUrl': f.githubUrl,
         'hasGithubUrl': f.githubUrl != null && f.githubUrl!.isNotEmpty,
       });
@@ -160,6 +164,12 @@ class HtmlReporter {
         'dropRate': report.frameHealth.dropRate.toStringAsFixed(2),
         'requestedCount': report.frameHealth.requestedCount,
         'processedCount': report.frameHealth.processedCount,
+        'totalAllocatedText': report.frameHealth.totalAllocatedBytes != null
+            ? _formatBytes(report.frameHealth.totalAllocatedBytes!)
+            : 'N/A',
+        'hasAllocatedBytes':
+            report.frameHealth.totalAllocatedBytes != null &&
+            report.frameHealth.totalAllocatedBytes! > 0,
       },
       'timeBreakdown': timeBreakdownData,
       'chartScale': chartScale.toStringAsFixed(0),
@@ -181,6 +191,18 @@ class HtmlReporter {
           wasmTypeCheckOpcodes.contains(opcode);
     }
     return false;
+  }
+
+  String _formatBytes(int bytes) {
+    if (bytes <= 0) return '0 B';
+    const suffixes = ['B', 'KB', 'MB', 'GB'];
+    var i = 0;
+    var val = bytes.toDouble();
+    while (val >= 1024 && i < suffixes.length - 1) {
+      val /= 1024;
+      i++;
+    }
+    return '${val.toStringAsFixed(i == 0 ? 0 : 1)} ${suffixes[i]}';
   }
 
   Future<void> saveReport(PerformanceReport report, String path) async {

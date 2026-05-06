@@ -158,6 +158,22 @@ class ChromeController {
     return response!.result!['profile'] as Map<String, dynamic>;
   }
 
+  Future<void> startHeapAllocationProfiling() async {
+    await _connection?.sendCommand('HeapProfiler.enable');
+    await _connection?.sendCommand('HeapProfiler.startSampling', {
+      'samplingInterval': 32768,
+    });
+    print('Heap allocation profiler started.');
+  }
+
+  Future<Map<String, dynamic>> stopHeapAllocationProfiling() async {
+    final response = await _connection?.sendCommand(
+      'HeapProfiler.stopSampling',
+    );
+    print('Heap allocation profiler stopped.');
+    return response!.result!['profile'] as Map<String, dynamic>;
+  }
+
   Future<void> stop() async {
     await _connection?.close();
     _connection = null;

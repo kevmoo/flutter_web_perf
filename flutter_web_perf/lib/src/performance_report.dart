@@ -79,12 +79,14 @@ class FrameHealth {
   final double? avgWorkMs;
   final int requestedCount;
   final int processedCount;
+  int? totalAllocatedBytes;
 
   FrameHealth({
     this.avgIntervalMs,
     this.avgWorkMs,
     required this.requestedCount,
     required this.processedCount,
+    this.totalAllocatedBytes,
   });
 
   double get dropRate =>
@@ -134,6 +136,7 @@ class HotFunction {
   String? wasmInstructionsUnoptimized;
   WasmAnalysis? wasmAnalysis;
   WasmAnalysis? wasmAnalysisUnoptimized;
+  int? allocationsBytes;
   String? githubUrl;
 
   HotFunction({
@@ -149,6 +152,7 @@ class HotFunction {
     this.wasmInstructionsUnoptimized,
     this.wasmAnalysis,
     this.wasmAnalysisUnoptimized,
+    this.allocationsBytes,
     this.githubUrl,
   });
 }
