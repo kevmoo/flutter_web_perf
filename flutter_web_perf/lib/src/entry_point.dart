@@ -6,9 +6,11 @@ import 'package:path/path.dart' as p;
 
 import 'chrome_controller.dart';
 import 'html_reporter.dart';
+import 'performance_report.dart';
 import 'profile_symbolicator.dart';
 import 'server.dart';
 import 'trace_analyzer.dart';
+import 'utils.dart';
 import 'wasm_parser.dart';
 
 enum CompileTarget { js, wasm }
@@ -23,6 +25,12 @@ Future<void> runApp(List<String> arguments) async {
       help: 'The compile target for the web app.',
     )
     ..addOption(
+      'app-dir',
+      abbr: 'd',
+      defaultsTo: '../sample_app',
+      help: 'The path to the Flutter application directory to profile.',
+    )
+    ..addOption(
       'analyze-hotspot',
       help:
           'Provide the 1-based rank of the hot function to deeply analyze '
@@ -35,11 +43,10 @@ Future<void> runApp(List<String> arguments) async {
   final analyzeHotspotRank = int.tryParse(
     results['analyze-hotspot'] as String? ?? '',
   );
-
+  final appDir = results['app-dir'] as String;
   print('Hello from flutter_web_perf tool!');
   print('Target: $targetStr');
-
-  final appDir = '../sample_app';
+  print('App Directory: $appDir');
   final buildPath = '$appDir/build/web';
   final outDir = Directory('out');
   if (!await outDir.exists()) {
@@ -88,7 +95,36 @@ Future<void> runApp(List<String> arguments) async {
 
     // --- PHASE 2: PROFILE RUN ---
     print('\n=== Phase 2: Profile Run (--release) ===');
-    print('Building app in $appDir...');
+
+    // Compile unoptimized build first to capture unoptimized disassembly for
+    // comparison
+    if (target == CompileTarget.wasm) {
+      print('Building unoptimized app in $appDir for comparison (-O 0)...');
+      final unoptBuildArgs = [
+        'build',
+        'web',
+        '--release',
+        '--source-maps',
+        '-O',
+        '0',
+        '--wasm',
+      ];
+      await runFlutterBuild(unoptBuildArgs);
+
+      print('Extracting unoptimized Wasm disassembly...');
+      final unoptWatFile = File(p.join(outDir.path, 'main_unoptimized.wat'));
+      final dumpUnopt = await Process.run('wasm-tools', [
+        'print',
+        '$buildPath/main.dart.wasm',
+        '-o',
+        unoptWatFile.path,
+      ]);
+      if (dumpUnopt.exitCode != 0) {
+        print('Failed to dump unoptimized WAT: ${dumpUnopt.stderr}');
+      }
+    }
+
+    print('Building fully optimized app in $appDir (--release)...');
     final profileBuildArgs = ['build', 'web', '--release', '--source-maps'];
     if (target == CompileTarget.wasm) profileBuildArgs.add('--wasm');
     await runFlutterBuild(profileBuildArgs);
@@ -170,40 +206,74 @@ Future<void> runApp(List<String> arguments) async {
       print('${i + 1}. ${f.name}$wasmLabel: ${f.samples} samples');
 
       // Source-Aware Hotspot Analysis!
-      if (f.url.contains('package:flutter/') && f.lineNumber != null) {
+      if (f.lineNumber != null) {
         try {
-          final suffix = f.url.split('package:flutter/').last;
-          final localFilePath =
-              '$localFlutterRepo/packages/flutter/lib/$suffix';
-
-          if (flutterSha != null) {
-            f.githubUrl =
-                'https://github.com/flutter/flutter/blob/$flutterSha/packages/flutter/lib/$suffix#L${f.lineNumber}';
+          String? localFilePath;
+          if (f.url.startsWith('package:')) {
+            localFilePath = resolvePackageUri(f.url, p.absolute(appDir));
+          } else if (f.url.startsWith('file://')) {
+            try {
+              localFilePath = Uri.parse(f.url).toFilePath();
+            } catch (_) {}
+          } else if (p.isAbsolute(f.url)) {
+            localFilePath = f.url;
           }
 
-          final sourceFile = File(localFilePath);
+          if (localFilePath != null) {
+            final sourceFile = File(localFilePath);
+            if (await sourceFile.exists()) {
+              final className = findEnclosingClass(
+                localFilePath,
+                f.lineNumber!,
+              );
+              int? displayLine;
+              if (className != null) {
+                displayLine = findMethodDeclarationLine(
+                  localFilePath,
+                  className,
+                  f.name,
+                );
+              }
+              final displayLineNumber = displayLine ?? f.lineNumber!;
 
-          if (await sourceFile.exists()) {
-            final lines = await sourceFile.readAsLines();
-            final centerLineIdx = (f.lineNumber! - 1).clamp(
-              0,
-              lines.isNotEmpty ? lines.length - 1 : 0,
-            );
-            final startLineIdx = (centerLineIdx - 2).clamp(
-              0,
-              lines.isNotEmpty ? lines.length - 1 : 0,
-            );
-            final endLineIdx = (centerLineIdx + 3).clamp(0, lines.length);
+              // Generate GitHub URL generically for framework sources
+              if (localFilePath.contains('/packages/flutter/lib/')) {
+                final suffix = localFilePath
+                    .split('/packages/flutter/lib/')
+                    .last;
+                if (flutterSha != null) {
+                  f.githubUrl =
+                      'https://github.com/flutter/flutter/blob/$flutterSha/packages/flutter/lib/$suffix#L$displayLineNumber';
+                }
+              }
 
-            print('    📍 ${sourceFile.path}:${f.lineNumber!}');
-            print('    ╭────────────────────────────────────────');
-            for (var lineIdx = startLineIdx; lineIdx < endLineIdx; lineIdx++) {
-              final prefix = lineIdx == centerLineIdx ? '    │ > ' : '    │   ';
-              print('$prefix${lines[lineIdx]}');
+              final lines = await sourceFile.readAsLines();
+              final centerLineIdx = (displayLineNumber - 1).clamp(
+                0,
+                lines.isNotEmpty ? lines.length - 1 : 0,
+              );
+              final startLineIdx = (centerLineIdx - 2).clamp(
+                0,
+                lines.isNotEmpty ? lines.length - 1 : 0,
+              );
+              final endLineIdx = (centerLineIdx + 3).clamp(0, lines.length);
+
+              print('    📍 ${sourceFile.path}:$displayLineNumber');
+              print('    ╭────────────────────────────────────────');
+              for (
+                var lineIdx = startLineIdx;
+                lineIdx < endLineIdx;
+                lineIdx++
+              ) {
+                final prefix = lineIdx == centerLineIdx
+                    ? '    │ > '
+                    : '    │   ';
+                print('$prefix${lines[lineIdx]}');
+              }
+              print('    ╰────────────────────────────────────────');
             }
-            print('    ╰────────────────────────────────────────');
           }
-        } catch (e) {
+        } catch (_) {
           // Ignore source reading errors quietly to not break the report
         }
       }
@@ -228,18 +298,70 @@ Future<void> runApp(List<String> arguments) async {
             .where((id) => id.isNotEmpty)
             .toList();
 
-        // 3. Extract all at once
+        // 3. Extract optimized disassemblies
         final instructionsMap = extractWasmFunctions(watFile.path, identifiers);
 
-        // 4. Populate the report model
-        for (final f in report.hotFunctions) {
-          final id = f.wasmFunctionIndex?.toString() ?? f.name;
-          f.wasmInstructions = instructionsMap[id];
+        // 4. Extract unoptimized disassemblies by prepending resolved enclosing class/mixin names
+        final unoptWatFile = File(p.join(outDir.path, 'main_unoptimized.wat'));
+        if (unoptWatFile.existsSync()) {
+          final unoptIdentifiers = <String>[];
+          final functionToUnoptId = <HotFunction, String>{};
+
+          for (final f in report.hotFunctions) {
+            String? unoptId;
+
+            String? localFilePath;
+            if (f.url.startsWith('package:')) {
+              localFilePath = resolvePackageUri(f.url, p.absolute(appDir));
+            } else if (f.url.startsWith('file://')) {
+              try {
+                localFilePath = Uri.parse(f.url).toFilePath();
+              } catch (_) {}
+            } else if (p.isAbsolute(f.url)) {
+              localFilePath = f.url;
+            }
+
+            if (localFilePath != null && f.lineNumber != null) {
+              try {
+                final className = findEnclosingClass(
+                  localFilePath,
+                  f.lineNumber!,
+                );
+                if (className != null) {
+                  unoptId = '$className.${f.name}';
+                }
+              } catch (_) {}
+            }
+
+            unoptId ??= f.name;
+            unoptIdentifiers.add(unoptId);
+            functionToUnoptId[f] = unoptId;
+          }
+
+          final extracted = extractWasmFunctions(
+            unoptWatFile.path,
+            unoptIdentifiers,
+          );
+
+          // 5. Populate the report model
+          for (final f in report.hotFunctions) {
+            final id = f.wasmFunctionIndex?.toString() ?? f.name;
+            f.wasmInstructions = instructionsMap[id];
+
+            final unoptId = functionToUnoptId[f]!;
+            f.wasmInstructionsUnoptimized = extracted[unoptId];
+          }
+        } else {
+          // 5. Populate the report model (optimized only)
+          for (final f in report.hotFunctions) {
+            final id = f.wasmFunctionIndex?.toString() ?? f.name;
+            f.wasmInstructions = instructionsMap[id];
+          }
         }
 
         print(
           'Successfully extracted disassembly for '
-          '${instructionsMap.length} hot functions.',
+          '${instructionsMap.length} hot functions (optimized & unoptimized).',
         );
 
         // Keep the console output logic for the specific rank requested

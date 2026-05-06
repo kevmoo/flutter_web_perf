@@ -40,6 +40,17 @@ class HtmlReporter {
         }
       }
 
+      List<Map>? wasmUnoptLines;
+      if (f.wasmInstructionsUnoptimized != null) {
+        final lines = const LineSplitter().convert(
+          f.wasmInstructionsUnoptimized!,
+        );
+        wasmUnoptLines = [];
+        for (var lineIdx = 0; lineIdx < lines.length; lineIdx++) {
+          wasmUnoptLines.add({'number': lineIdx + 1, 'text': lines[lineIdx]});
+        }
+      }
+
       hotFunctionsData.add({
         'index': i + 1,
         'name': f.name,
@@ -49,6 +60,8 @@ class HtmlReporter {
         'tagText': isSdk ? 'SDK' : 'App',
         'hasWasm': wasmLines != null,
         'wasmLines': wasmLines,
+        'hasWasmUnopt': wasmUnoptLines != null,
+        'wasmUnoptLines': wasmUnoptLines,
         'githubUrl': f.githubUrl,
         'hasGithubUrl': f.githubUrl != null && f.githubUrl!.isNotEmpty,
       });
