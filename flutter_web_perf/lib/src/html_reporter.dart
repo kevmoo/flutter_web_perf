@@ -10,17 +10,51 @@ class HtmlReporter {
     final templateString = utf8.decode(templateBytes);
     final template = Template(templateString, name: 'report.mustache');
 
-    // Prepare data for template (Concept 1: Total Duration Normalization)
-    final totalDur = report.timeBreakdown.values.isEmpty
-        ? 1.0
-        : report.timeBreakdown.values.reduce((a, b) => a + b);
+    // Prepare data for template (Concept 1 & 3: Scaled Platform Allocations)
+    final mutableBreakdown = Map<String, double>.from(report.timeBreakdown);
+    final jsScripting = mutableBreakdown['JS Scripting'] ?? 0.0;
+    final buildTime = mutableBreakdown['Flutter Build'] ?? 0.0;
+    final layoutTime = mutableBreakdown['Flutter Layout'] ?? 0.0;
+    final paintTime = mutableBreakdown['Flutter Paint'] ?? 0.0;
 
-    final timeBreakdownData = report.timeBreakdown.entries.map((e) {
+    // Subtract children framework times to get true exclusive platform
+    // scripting
+    final exclusiveJs = (jsScripting - (buildTime + layoutTime + paintTime))
+        .clamp(0.0, double.infinity);
+    mutableBreakdown['JS Scripting'] = exclusiveJs;
+
+    final totalDur = mutableBreakdown.values.isEmpty
+        ? 1.0
+        : mutableBreakdown.values.reduce((a, b) => a + b);
+
+    // 1. Find maximum percentage in the categories
+    var maxPct = 0.0;
+    for (final entry in mutableBreakdown.entries) {
+      final pct = totalDur > 0 ? (entry.value / totalDur) * 100 : 0.0;
+      if (pct > maxPct) maxPct = pct;
+    }
+
+    // 2. Round up to the next 10% increment (minimum 10%, maximum 100%)
+    var chartScale = 10.0;
+    if (maxPct > 0.0) {
+      chartScale = (maxPct / 10.0).ceil() * 10.0;
+    }
+    if (chartScale > 100.0) chartScale = 100.0;
+
+    final timeBreakdownData = mutableBreakdown.entries.map((e) {
       final duration = e.value;
-      final percent = totalDur > 0 ? (duration / totalDur) * 100 : 0;
+      final percent = totalDur > 0 ? (duration / totalDur) * 100 : 0.0;
+      final displayWidth = chartScale > 0 ? (percent / chartScale) * 100 : 0.0;
+
+      // Overlay text inside the bar only if it is wide enough
+      // (>= 12% of chart scale)
+      final hasPercentVal = percent >= (chartScale * 0.12);
+
       return {
-        'category': e.key,
+        'category': e.key == 'JS Scripting' ? 'JS Scripting (other)' : e.key,
         'percent': percent.toStringAsFixed(1),
+        'displayWidth': displayWidth.toStringAsFixed(1),
+        'hasPercentVal': hasPercentVal,
         'durationMs': duration.toStringAsFixed(1),
       };
     }).toList();
@@ -78,6 +112,7 @@ class HtmlReporter {
         'processedCount': report.frameHealth.processedCount,
       },
       'timeBreakdown': timeBreakdownData,
+      'chartScale': chartScale.toStringAsFixed(0),
       'hotFunctions': hotFunctionsData,
     };
 
