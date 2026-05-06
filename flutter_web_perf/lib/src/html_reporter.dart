@@ -71,7 +71,6 @@ class HtmlReporter {
     final hotFunctionsData = <Map>[];
     for (var i = 0; i < report.hotFunctions.length; i++) {
       final f = report.hotFunctions[i];
-      final isSdk = f.url.contains('org-dartlang-sdk:///');
 
       List<Map>? wasmLines;
       if (f.wasmInstructions != null) {
@@ -100,8 +99,8 @@ class HtmlReporter {
         'samples': f.samples,
         'percent': f.percent.toStringAsFixed(1),
         'estimatedMs': f.samples,
-        'tagClass': isSdk ? 'tag sdk' : 'tag',
-        'tagText': isSdk ? 'SDK' : 'App',
+        'tagClass': f.category.name,
+        'tagText': f.category.shortLabel,
         'hasWasm': wasmLines != null,
         'wasmLines': wasmLines,
         'hasWasmUnopt': wasmUnoptLines != null,

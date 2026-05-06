@@ -36,6 +36,18 @@ enum PerformanceCategory {
       orElse: () => PerformanceCategory.other,
     );
   }
+
+  String get shortLabel => switch (this) {
+    PerformanceCategory.flutterBuild => 'Build',
+    PerformanceCategory.flutterLayout => 'Layout',
+    PerformanceCategory.flutterPaint => 'Paint',
+    PerformanceCategory.flutterCompositing => 'Compositing',
+    PerformanceCategory.flutterSemantics => 'Semantics',
+    PerformanceCategory.engineRaster => 'Raster',
+    PerformanceCategory.jsScripting || PerformanceCategory.other => 'Script',
+    PerformanceCategory.browserRendering => 'Rendering',
+    PerformanceCategory.gc => 'GC',
+  };
 }
 
 class PerformanceReport {
@@ -90,6 +102,7 @@ class HotFunction {
   final String url;
   final int samples;
   final double percent;
+  final PerformanceCategory category;
   final int? lineNumber;
   final int? columnNumber;
   final int? wasmFunctionIndex;
@@ -102,6 +115,7 @@ class HotFunction {
     required this.url,
     required this.samples,
     required this.percent,
+    required this.category,
     this.lineNumber,
     this.columnNumber,
     this.wasmFunctionIndex,

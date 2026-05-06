@@ -137,17 +137,41 @@
 
     .tag {
       display: inline-block;
-      padding: 0.25rem 0.5rem;
+      padding: 0.15rem 0.45rem;
       border-radius: 0.25rem;
-      font-size: 0.8rem;
-      font-weight: 600;
-      background: rgba(56, 189, 248, 0.2);
-      color: var(--accent-color);
+      font-size: 0.7rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      border: 1px solid currentColor;
+      background: transparent;
+      box-shadow: 0 0 4px currentColor;
+      margin-right: 0.5rem;
+      vertical-align: middle;
     }
 
-    .tag.sdk {
-      background: rgba(148, 163, 184, 0.2);
-      color: var(--secondary-color);
+    .tag.flutterBuild {
+      color: #10b981; /* Glowing Emerald (Build) */
+    }
+
+    .tag.flutterLayout {
+      color: #f59e0b; /* Glowing Amber (Layout) */
+    }
+
+    .tag.flutterPaint {
+      color: #ec4899; /* Glowing Pink (Paint) */
+    }
+
+    .tag.flutterCompositing {
+      color: #a855f7; /* Glowing Purple (Compositing) */
+    }
+
+    .tag.engineRaster {
+      color: #06b6d4; /* Glowing Cyan (Raster) */
+    }
+
+    .tag.jsScripting, .tag.other {
+      color: #3b82f6; /* Glowing Blue (Script) */
     }
 
     .bar-chart {

@@ -222,11 +222,15 @@ $sqlCases
       return false;
     }
 
+    final functionPhaseCounts = <String, Map<PerformanceCategory, int>>{};
+
     for (final leafNodeId in profile.samples) {
       int? currentNodeId = leafNodeId;
       CpuProfileNode? meaningfulNode;
       var meaningfulKey = '';
       var meaningfulUrl = '';
+      final stackNames = <String>[];
+      String? targetUrl;
 
       while (currentNodeId != null) {
         final node = nodeMap[currentNodeId];
@@ -236,24 +240,23 @@ $sqlCases
         final key = frame.functionName;
         final url = normalizeLocation(frame.url);
 
+        stackNames.add(key);
+        targetUrl ??= url;
+
         // Check if we should collapse CanvasKit
         if (!expandCanvaskitFrames &&
             (url.contains('canvaskit.wasm') || url.contains('skwasm.wasm'))) {
           meaningfulNode = node;
           meaningfulKey = 'CanvasKit Wasm (collapsed)';
           meaningfulUrl = url;
-          break;
         }
 
         // If it's not an internal/interop frame, we've found our true caller!
-        if (!isInternalOrInterop(node)) {
-          // One final check: if the name is empty, we probably shouldn't
-          // use it.
+        if (meaningfulNode == null && !isInternalOrInterop(node)) {
           if (key.isNotEmpty) {
             meaningfulNode = node;
             meaningfulKey = key;
             meaningfulUrl = url;
-            break;
           }
         }
 
@@ -279,6 +282,47 @@ $sqlCases
         if (frame.wasmFunctionIndex != null) {
           functionWasmIndices[meaningfulKey] = frame.wasmFunctionIndex;
         }
+
+        // Determine the framework phase of this sample
+        var phase = PerformanceCategory.other;
+        for (final name in stackNames) {
+          if (name.contains('buildScope') ||
+              name.contains('rebuild') ||
+              name.contains('performRebuild')) {
+            phase = PerformanceCategory.flutterBuild;
+            break;
+          }
+          if (name.contains('performLayout') ||
+              name.contains('flushLayout') ||
+              name.contains('.layout')) {
+            phase = PerformanceCategory.flutterLayout;
+            break;
+          }
+          if (name.contains('paintChild') ||
+              name.contains('flushPaint') ||
+              name.contains('.paint')) {
+            phase = PerformanceCategory.flutterPaint;
+            break;
+          }
+          if (name.contains('addToScene') ||
+              name.contains('flushCompositing')) {
+            phase = PerformanceCategory.flutterCompositing;
+            break;
+          }
+        }
+
+        if (phase == PerformanceCategory.other &&
+            (targetUrl != null &&
+                (targetUrl.contains('canvaskit.wasm') ||
+                    targetUrl.contains('skwasm.wasm')))) {
+          phase = PerformanceCategory.engineRaster;
+        }
+
+        final phaseMap = functionPhaseCounts.putIfAbsent(
+          meaningfulKey,
+          () => <PerformanceCategory, int>{},
+        );
+        phaseMap[phase] = (phaseMap[phase] ?? 0) + 1;
       }
     }
 
@@ -303,12 +347,26 @@ $sqlCases
           ? (samplesCount / totalSamples) * 100
           : 0.0;
 
+      final phaseMap = functionPhaseCounts[entry.key];
+      var dominantPhase = PerformanceCategory.other;
+      if (phaseMap != null && phaseMap.isNotEmpty) {
+        dominantPhase = phaseMap.entries
+            .reduce((a, b) => a.value > b.value ? a : b)
+            .key;
+      }
+      if (dominantPhase == PerformanceCategory.other) {
+        dominantPhase = entry.key.contains('CanvasKit Wasm')
+            ? PerformanceCategory.engineRaster
+            : PerformanceCategory.jsScripting;
+      }
+
       hotFunctions.add(
         HotFunction(
           name: entry.key,
           url: functionUrls[entry.key] ?? '',
           samples: samplesCount,
           percent: percent,
+          category: dominantPhase,
           lineNumber: hottestLine,
           // Column numbers are generally useless for human-readable output
           columnNumber: null,
