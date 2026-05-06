@@ -154,19 +154,90 @@ int? findMethodDeclarationLine(
 
     final methodRegExp = RegExp(r'\b' + searchMethodName + r'\s*\(');
 
+    // Boundaries to stop search (any other class/mixin/extension)
+    final anyClassRegExp = RegExp(
+      r'^\s*(?:abstract\s+|base\s+|interface\s+|final\s+|sealed\s+)?class\s+\w+',
+    );
+    final anyMixinRegExp = RegExp(r'^\s*mixin\s+\w+');
+    final anyExtensionRegExp = RegExp(r'^\s*extension\s+(?:on\s+)?\w+');
+
     for (var i = classLineIdx; i < lines.length; i++) {
       final line = lines[i];
 
       // If we hit another class/mixin/extension declaration, stop!
       if (i > classLineIdx &&
-          (classRegExp.hasMatch(line) ||
-              mixinRegExp.hasMatch(line) ||
-              extensionRegExp.hasMatch(line))) {
+          (anyClassRegExp.hasMatch(line) ||
+              anyMixinRegExp.hasMatch(line) ||
+              anyExtensionRegExp.hasMatch(line))) {
         break;
       }
 
       if (methodRegExp.hasMatch(line)) {
         return i + 1; // Return 1-based line number!
+      }
+    }
+  } catch (_) {}
+  return null;
+}
+
+/// Resolves the true enclosing class defining [methodName] in [filePath].
+/// If the class enclosing [lineNumber] doesn't define the method (due to source
+/// map inline offsets), it scans the entire file to find the correct defining
+/// class.
+String? resolveClassForMethod(
+  String filePath,
+  int lineNumber,
+  String methodName,
+) {
+  // 1. Check enclosing class of the sampled line first
+  final enclosingClass = findEnclosingClass(filePath, lineNumber);
+  if (enclosingClass != null) {
+    final line = findMethodDeclarationLine(
+      filePath,
+      enclosingClass,
+      methodName,
+    );
+    if (line != null) {
+      return enclosingClass;
+    }
+  }
+
+  // 2. Fallback: Scan the entire file for any class/mixin/extension defining it
+  try {
+    final file = File(filePath);
+    if (!file.existsSync()) return null;
+
+    final lines = file.readAsLinesSync();
+    final classRegExp = RegExp(
+      r'^\s*(?:abstract\s+|base\s+|interface\s+|final\s+|sealed\s+)?class\s+(\w+)',
+    );
+    final mixinRegExp = RegExp(r'^\s*mixin\s+(\w+)');
+    final extensionRegExp = RegExp(r'^\s*extension\s+(?:on\s+)?(\w+)');
+
+    for (var i = 0; i < lines.length; i++) {
+      final line = lines[i];
+      String? candClass;
+
+      var match = classRegExp.firstMatch(line);
+      if (match != null) {
+        candClass = match.group(1);
+      } else {
+        match = mixinRegExp.firstMatch(line);
+        if (match != null) {
+          candClass = match.group(1);
+        } else {
+          match = extensionRegExp.firstMatch(line);
+          if (match != null) {
+            candClass = match.group(1);
+          }
+        }
+      }
+
+      if (candClass != null) {
+        final line = findMethodDeclarationLine(filePath, candClass, methodName);
+        if (line != null) {
+          return candClass;
+        }
       }
     }
   } catch (_) {}

@@ -236,4 +236,49 @@ class ClassA {
       expect(findMethodDeclarationLine(file.path, 'ClassA', 'methodY'), isNull);
     });
   });
+
+  group('resolveClassForMethod', () {
+    late Directory tempDir;
+
+    setUp(() async {
+      tempDir = await Directory.systemTemp.createTemp('resolve_class_test_');
+    });
+
+    tearDown(() async {
+      await tempDir.delete(recursive: true);
+    });
+
+    test('resolves class directly if method is within boundary', () {
+      final file = File(p.join(tempDir.path, 'test_direct.dart'));
+      file.writeAsStringSync('''
+class ClassA {
+  void methodX() {}
+}
+''');
+
+      final result = resolveClassForMethod(file.path, 2, 'methodX');
+      expect(result, 'ClassA');
+    });
+
+    test(
+      'resolves class from anywhere in file if sampled offset is out of bounds',
+      () {
+        final file = File(p.join(tempDir.path, 'test_bounds.dart'));
+        file.writeAsStringSync('''
+class HelperClass {
+  // helper fields
+}
+
+class MainClass {
+  void performLayout() {}
+}
+''');
+
+        // Sampled offset 2 falls inside HelperClass, but performLayout is
+        // inside MainClass!
+        final result = resolveClassForMethod(file.path, 2, 'performLayout');
+        expect(result, 'MainClass');
+      },
+    );
+  });
 }

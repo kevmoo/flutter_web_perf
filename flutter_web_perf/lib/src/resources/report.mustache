@@ -413,13 +413,14 @@
 
   <script>
     function showWasm(btn, panelId) {
-      const tabsContainer = btn.parentElement;
+      const tabsContainer = btn.closest('.wasm-tabs');
+      if (!tabsContainer) return;
+      
       const buttons = tabsContainer.querySelectorAll('.tab-btn');
       buttons.forEach(b => b.classList.remove('active'));
       btn.classList.add('active');
       
-      const panelsContainer = tabsContainer.parentElement;
-      const panels = panelsContainer.querySelectorAll('.wasm-panel');
+      const panels = tabsContainer.querySelectorAll('.wasm-panel');
       panels.forEach(p => {
         p.style.display = 'none';
         p.classList.remove('active');

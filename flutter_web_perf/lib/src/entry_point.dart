@@ -222,9 +222,10 @@ Future<void> runApp(List<String> arguments) async {
           if (localFilePath != null) {
             final sourceFile = File(localFilePath);
             if (await sourceFile.exists()) {
-              final className = findEnclosingClass(
+              final className = resolveClassForMethod(
                 localFilePath,
                 f.lineNumber!,
+                f.name,
               );
               int? displayLine;
               if (className != null) {
@@ -323,9 +324,10 @@ Future<void> runApp(List<String> arguments) async {
 
             if (localFilePath != null && f.lineNumber != null) {
               try {
-                final className = findEnclosingClass(
+                final className = resolveClassForMethod(
                   localFilePath,
                   f.lineNumber!,
+                  f.name,
                 );
                 if (className != null) {
                   unoptId = '$className.${f.name}';
