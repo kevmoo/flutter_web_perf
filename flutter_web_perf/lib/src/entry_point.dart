@@ -7,6 +7,7 @@ import 'chrome_controller.dart';
 import 'html_reporter.dart';
 import 'performance_report.dart';
 import 'profile_symbolicator.dart';
+import 'report_directory.dart';
 import 'server.dart';
 import 'trace_analyzer.dart';
 import 'utils.dart';
@@ -29,20 +30,14 @@ Future<void> runApp({
   }
 
   final buildPath = '$appDir/build/web';
-  final destinationDir = Directory(outDir);
-  if (!await destinationDir.exists()) {
-    await destinationDir.create();
-  }
-
-  final traceFile = File(p.join(destinationDir.path, 'trace.json'));
-  final profileFile = File(p.join(destinationDir.path, 'profile.json'));
-  final allocationsFile = File(p.join(destinationDir.path, 'allocations.json'));
+  final reportDir = PerformanceReportDirectory(outDir);
 
   if (analyzeOnly) {
-    if (!traceFile.existsSync() || !profileFile.existsSync()) {
+    if (!reportDir.traceFile.existsSync() ||
+        !reportDir.profileFile.existsSync()) {
       print(
         'Error: Cannot run in --analyze-only mode because trace or profile '
-        'files are missing in ${destinationDir.path} directory.',
+        'files are missing in ${reportDir.path} directory.',
       );
       print('Please run a full profiling session first.');
       exitCode = 1;
@@ -84,8 +79,8 @@ Future<void> runApp({
       final events = await controller.stopTracing();
 
       print('Collected ${events.length} trace events.');
-      await traceFile.writeAsString(json.encode(events));
-      print('Saved trace data to ${traceFile.absolute.path}');
+      await reportDir.traceFile.writeAsString(json.encode(events));
+      print('Saved trace data to ${reportDir.traceFile.absolute.path}');
 
       await controller.stop();
       await server.stop();
@@ -109,9 +104,7 @@ Future<void> runApp({
         await runFlutterBuild(unoptBuildArgs);
 
         print('Extracting unoptimized Wasm disassembly...');
-        final unoptWatFile = File(
-          p.join(destinationDir.path, 'main_unoptimized.wat'),
-        );
+        final unoptWatFile = reportDir.unoptimizedWatFile;
         final dumpUnopt = await Process.run('wasm-tools', [
           'print',
           '$buildPath/main.dart.wasm',
@@ -139,10 +132,13 @@ Future<void> runApp({
       final profile = await controller.stopProfiling();
       final allocations = await controller.stopHeapAllocationProfiling();
 
-      await profileFile.writeAsString(json.encode(profile));
-      print('Saved profile data to ${profileFile.absolute.path}');
-      await allocationsFile.writeAsString(json.encode(allocations));
-      print('Saved heap allocation data to ${allocationsFile.absolute.path}');
+      await reportDir.profileFile.writeAsString(json.encode(profile));
+      print('Saved profile data to ${reportDir.profileFile.absolute.path}');
+      await reportDir.allocationsFile.writeAsString(json.encode(allocations));
+      print(
+        'Saved heap allocation data to '
+        '${reportDir.allocationsFile.absolute.path}',
+      );
 
       await controller.stop();
       await server.stop();
@@ -154,16 +150,17 @@ Future<void> runApp({
         ? '$buildPath/main.dart.wasm.map'
         : '$buildPath/main.dart.js.map';
 
-    final analyzer = TraceAnalyzer(traceFile.path, sourceMapPath: mapPath);
-
-    final symbolicatedProfile = await symbolicateProfile(
-      profilePath: profileFile.path,
+    final analyzer = TraceAnalyzer(
+      reportDir.traceFile.path,
       sourceMapPath: mapPath,
     );
 
-    final symbolicatedFile = File(
-      p.join(destinationDir.path, 'profile_symbolicated.json'),
+    final symbolicatedProfile = await symbolicateProfile(
+      profilePath: reportDir.profileFile.path,
+      sourceMapPath: mapPath,
     );
+
+    final symbolicatedFile = reportDir.symbolicatedProfileFile;
     await symbolicatedFile.writeAsString(json.encode(symbolicatedProfile));
     print('Saved symbolicated profile to ${symbolicatedFile.absolute.path}');
 
@@ -172,9 +169,9 @@ Future<void> runApp({
     );
 
     // Parse and attribute dynamic memory allocations from Heap Sampler
-    if (allocationsFile.existsSync()) {
+    if (reportDir.allocationsFile.existsSync()) {
       try {
-        final heapContent = allocationsFile.readAsStringSync();
+        final heapContent = reportDir.allocationsFile.readAsStringSync();
         final heapData = json.decode(heapContent) as Map<String, dynamic>;
         final head = heapData['head'] as Map<String, dynamic>?;
         if (head != null) {
@@ -349,7 +346,7 @@ Future<void> runApp({
 
     if (target == CompileTarget.wasm) {
       print('\n=== Deep Dive Analysis: Extracting Wasm Disassembly ===');
-      final watFile = File(p.join(destinationDir.path, 'main.wat'));
+      final watFile = reportDir.mainWatFile;
 
       // 1. Dump the entire Wasm module to WAT once (it's fast with wasm-tools)
       final dumpResult = await Process.run('wasm-tools', [
@@ -370,9 +367,7 @@ Future<void> runApp({
         final instructionsMap = extractWasmFunctions(watFile.path, identifiers);
 
         // 4. Extract unoptimized disassemblies by prepending resolved enclosing class/mixin names
-        final unoptWatFile = File(
-          p.join(destinationDir.path, 'main_unoptimized.wat'),
-        );
+        final unoptWatFile = reportDir.unoptimizedWatFile;
         if (unoptWatFile.existsSync()) {
           final unoptIdentifiers = <String>[];
           final functionToUnoptId = <HotFunction, String>{};
@@ -471,10 +466,7 @@ Future<void> runApp({
 
     // Generate HTML report (after populating wasmInstructions).
     final htmlReporter = HtmlReporter();
-    await htmlReporter.saveReport(
-      report,
-      p.join(destinationDir.path, 'report.html'),
-    );
+    await htmlReporter.saveReport(report, reportDir.reportHtmlFile.path);
   } catch (e) {
     print('Error: $e');
   } finally {
