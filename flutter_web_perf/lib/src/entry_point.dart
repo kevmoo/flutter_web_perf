@@ -351,15 +351,20 @@ Future<void> runApp({
           for (final f in report.hotFunctions) {
             final id = f.wasmFunctionIndex?.toString() ?? f.name;
             f.wasmInstructions = instructionsMap[id];
+            f.wasmAnalysis = analyzeWasmInstructions(f.wasmInstructions);
 
             final unoptId = functionToUnoptId[f]!;
             f.wasmInstructionsUnoptimized = extracted[unoptId];
+            f.wasmAnalysisUnoptimized = analyzeWasmInstructions(
+              f.wasmInstructionsUnoptimized,
+            );
           }
         } else {
           // 5. Populate the report model (optimized only)
           for (final f in report.hotFunctions) {
             final id = f.wasmFunctionIndex?.toString() ?? f.name;
             f.wasmInstructions = instructionsMap[id];
+            f.wasmAnalysis = analyzeWasmInstructions(f.wasmInstructions);
           }
         }
 

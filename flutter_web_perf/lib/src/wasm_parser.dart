@@ -1,5 +1,7 @@
 import 'dart:io';
 
+import 'performance_report.dart';
+
 /// Extracts multiple functions from a WAT file by their names or indices.
 /// Returns a map of identifier -> instructions.
 Map<String, String> extractWasmFunctions(
@@ -106,3 +108,70 @@ Map<String, String> parseWasmFunctions(
 }
 
 String _formatLine(String l) => l.startsWith('  ') ? l.substring(2) : l;
+
+/// Analyzes raw Wasm Text (WAT) instructions of a function.
+///
+/// Generates total counts, WasmGC allocation metrics, and dynamic casting
+/// checks.
+WasmAnalysis? analyzeWasmInstructions(String? instructions) {
+  if (instructions == null || instructions.isEmpty) return null;
+
+  var totalInstructions = 0;
+  var allocationCount = 0;
+  var typeCheckCount = 0;
+  final instructionCounts = <String, int>{};
+
+  final lines = instructions.split('\n');
+  final opcodeRegex = RegExp(r'^[a-z0-9_]+(?:\.[a-z0-9_]+)*');
+
+  const declKeywords = {
+    'func',
+    'local',
+    'param',
+    'result',
+    'type',
+    'import',
+    'export',
+    'table',
+    'memory',
+    'elem',
+    'data',
+    'global',
+  };
+
+  for (final rawLine in lines) {
+    var line = rawLine.trim();
+    // Strip leading parenthetical wrappers
+    while (line.startsWith('(')) {
+      line = line.substring(1).trim();
+    }
+
+    if (line.isEmpty || line.startsWith(';;') || line.startsWith('(;')) {
+      continue;
+    }
+
+    final match = opcodeRegex.firstMatch(line);
+    if (match != null) {
+      final opcode = match.group(0)!;
+      if (declKeywords.contains(opcode)) {
+        continue;
+      }
+
+      totalInstructions++;
+      instructionCounts[opcode] = (instructionCounts[opcode] ?? 0) + 1;
+
+      if (wasmAllocationOpcodes.contains(opcode)) {
+        allocationCount++;
+      } else if (wasmTypeCheckOpcodes.contains(opcode)) {
+        typeCheckCount++;
+      }
+    }
+  }
+
+  return WasmAnalysis(
+    totalInstructions: totalInstructions,
+    allocationCount: allocationCount,
+    typeCheckCount: typeCheckCount,
+    instructionCounts: instructionCounts,
+  );
+}

@@ -1,3 +1,13 @@
+const wasmAllocationOpcodes = {
+  'struct.new',
+  'struct.new_default',
+  'array.new',
+  'array.new_default',
+  'array.new_fixed',
+};
+
+const wasmTypeCheckOpcodes = {'ref.cast', 'ref.test', 'br_on_cast'};
+
 enum PerformanceCategory {
   flutterBuild(
     label: 'Flutter Build',
@@ -97,6 +107,20 @@ class SlowTask {
   });
 }
 
+class WasmAnalysis {
+  final int totalInstructions;
+  final int allocationCount;
+  final int typeCheckCount;
+  final Map<String, int> instructionCounts;
+
+  WasmAnalysis({
+    required this.totalInstructions,
+    required this.allocationCount,
+    required this.typeCheckCount,
+    required this.instructionCounts,
+  });
+}
+
 class HotFunction {
   final String name;
   final String url;
@@ -108,6 +132,8 @@ class HotFunction {
   final int? wasmFunctionIndex;
   String? wasmInstructions;
   String? wasmInstructionsUnoptimized;
+  WasmAnalysis? wasmAnalysis;
+  WasmAnalysis? wasmAnalysisUnoptimized;
   String? githubUrl;
 
   HotFunction({
@@ -121,6 +147,8 @@ class HotFunction {
     this.wasmFunctionIndex,
     this.wasmInstructions,
     this.wasmInstructionsUnoptimized,
+    this.wasmAnalysis,
+    this.wasmAnalysisUnoptimized,
     this.githubUrl,
   });
 }

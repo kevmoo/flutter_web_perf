@@ -77,7 +77,12 @@ class HtmlReporter {
         final lines = const LineSplitter().convert(f.wasmInstructions!);
         wasmLines = [];
         for (var lineIdx = 0; lineIdx < lines.length; lineIdx++) {
-          wasmLines.add({'number': lineIdx + 1, 'text': lines[lineIdx]});
+          final lineText = lines[lineIdx];
+          wasmLines.add({
+            'number': lineIdx + 1,
+            'text': lineText,
+            'isBad': _isLineBad(lineText),
+          });
         }
       }
 
@@ -88,8 +93,41 @@ class HtmlReporter {
         );
         wasmUnoptLines = [];
         for (var lineIdx = 0; lineIdx < lines.length; lineIdx++) {
-          wasmUnoptLines.add({'number': lineIdx + 1, 'text': lines[lineIdx]});
+          final lineText = lines[lineIdx];
+          wasmUnoptLines.add({
+            'number': lineIdx + 1,
+            'text': lineText,
+            'isBad': _isLineBad(lineText),
+          });
         }
+      }
+
+      Map? wasmAnalysisData;
+      if (f.wasmAnalysis != null) {
+        wasmAnalysisData = {
+          'totalInstructions': f.wasmAnalysis!.totalInstructions,
+          'allocationCount': f.wasmAnalysis!.allocationCount,
+          'typeCheckCount': f.wasmAnalysis!.typeCheckCount,
+          'hasAllocationCount': f.wasmAnalysis!.allocationCount > 0,
+          'hasTypeCheckCount': f.wasmAnalysis!.typeCheckCount > 0,
+          'hasWarnings':
+              f.wasmAnalysis!.allocationCount > 0 ||
+              f.wasmAnalysis!.typeCheckCount > 0,
+        };
+      }
+
+      Map? wasmUnoptAnalysisData;
+      if (f.wasmAnalysisUnoptimized != null) {
+        wasmUnoptAnalysisData = {
+          'totalInstructions': f.wasmAnalysisUnoptimized!.totalInstructions,
+          'allocationCount': f.wasmAnalysisUnoptimized!.allocationCount,
+          'typeCheckCount': f.wasmAnalysisUnoptimized!.typeCheckCount,
+          'hasAllocationCount': f.wasmAnalysisUnoptimized!.allocationCount > 0,
+          'hasTypeCheckCount': f.wasmAnalysisUnoptimized!.typeCheckCount > 0,
+          'hasWarnings':
+              f.wasmAnalysisUnoptimized!.allocationCount > 0 ||
+              f.wasmAnalysisUnoptimized!.typeCheckCount > 0,
+        };
       }
 
       hotFunctionsData.add({
@@ -105,6 +143,10 @@ class HtmlReporter {
         'wasmLines': wasmLines,
         'hasWasmUnopt': wasmUnoptLines != null,
         'wasmUnoptLines': wasmUnoptLines,
+        'wasmAnalysis': wasmAnalysisData,
+        'hasWasmAnalysis': wasmAnalysisData != null,
+        'wasmUnoptAnalysis': wasmUnoptAnalysisData,
+        'hasWasmUnoptAnalysis': wasmUnoptAnalysisData != null,
         'githubUrl': f.githubUrl,
         'hasGithubUrl': f.githubUrl != null && f.githubUrl!.isNotEmpty,
       });
@@ -125,6 +167,20 @@ class HtmlReporter {
     };
 
     return template.renderString(data);
+  }
+
+  bool _isLineBad(String lineText) {
+    var cleaned = lineText.trim();
+    while (cleaned.startsWith('(')) {
+      cleaned = cleaned.substring(1).trim();
+    }
+    final match = RegExp(r'^[a-z0-9_]+(?:\.[a-z0-9_]+)*').firstMatch(cleaned);
+    if (match != null) {
+      final opcode = match.group(0)!;
+      return wasmAllocationOpcodes.contains(opcode) ||
+          wasmTypeCheckOpcodes.contains(opcode);
+    }
+    return false;
   }
 
   Future<void> saveReport(PerformanceReport report, String path) async {
