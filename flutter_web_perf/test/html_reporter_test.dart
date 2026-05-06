@@ -13,7 +13,10 @@ void main() {
           requestedCount: 60,
           processedCount: 59,
         ),
-        timeBreakdown: {'Flutter Build': 100.0, 'JS Scripting': 50.0},
+        timeBreakdown: {
+          PerformanceCategory.flutterBuild: 100.0,
+          PerformanceCategory.jsScripting: 50.0,
+        },
         slowTasks: [],
         hotFunctions: [
           HotFunction(

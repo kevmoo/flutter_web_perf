@@ -194,7 +194,7 @@ Future<void> runApp({
 
     print('\n=== Time Breakdown ===');
     report.timeBreakdown.forEach((cat, dur) {
-      print('$cat: ${dur.toStringAsFixed(2)} ms');
+      print('${cat.label}: ${dur.toStringAsFixed(2)} ms');
     });
 
     print('\n=== Top 10 Hot Functions ===');

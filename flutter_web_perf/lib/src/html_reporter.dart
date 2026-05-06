@@ -10,18 +10,22 @@ class HtmlReporter {
     final templateString = utf8.decode(templateBytes);
     final template = Template(templateString, name: 'report.mustache');
 
-    // Prepare data for template (Concept 1 & 3: Scaled Platform Allocations)
-    final mutableBreakdown = Map<String, double>.from(report.timeBreakdown);
-    final jsScripting = mutableBreakdown['JS Scripting'] ?? 0.0;
-    final buildTime = mutableBreakdown['Flutter Build'] ?? 0.0;
-    final layoutTime = mutableBreakdown['Flutter Layout'] ?? 0.0;
-    final paintTime = mutableBreakdown['Flutter Paint'] ?? 0.0;
+    // Prepare data for template (Exclusive Platform Allocations)
+    final mutableBreakdown = Map<PerformanceCategory, double>.from(
+      report.timeBreakdown,
+    );
+    final jsScripting =
+        mutableBreakdown[PerformanceCategory.jsScripting] ?? 0.0;
+    final buildTime = mutableBreakdown[PerformanceCategory.flutterBuild] ?? 0.0;
+    final layoutTime =
+        mutableBreakdown[PerformanceCategory.flutterLayout] ?? 0.0;
+    final paintTime = mutableBreakdown[PerformanceCategory.flutterPaint] ?? 0.0;
 
     // Subtract children framework times to get true exclusive platform
     // scripting
     final exclusiveJs = (jsScripting - (buildTime + layoutTime + paintTime))
         .clamp(0.0, double.infinity);
-    mutableBreakdown['JS Scripting'] = exclusiveJs;
+    mutableBreakdown[PerformanceCategory.jsScripting] = exclusiveJs;
 
     final totalDur = mutableBreakdown.values.isEmpty
         ? 1.0
@@ -42,6 +46,7 @@ class HtmlReporter {
     if (chartScale > 100.0) chartScale = 100.0;
 
     final timeBreakdownData = mutableBreakdown.entries.map((e) {
+      final category = e.key;
       final duration = e.value;
       final percent = totalDur > 0 ? (duration / totalDur) * 100 : 0.0;
       final displayWidth = chartScale > 0 ? (percent / chartScale) * 100 : 0.0;
@@ -50,8 +55,12 @@ class HtmlReporter {
       // (>= 12% of chart scale)
       final hasPercentVal = percent >= (chartScale * 0.12);
 
+      final label = category == PerformanceCategory.jsScripting
+          ? 'JS Scripting (other)'
+          : category.label;
+
       return {
-        'category': e.key == 'JS Scripting' ? 'JS Scripting (other)' : e.key,
+        'category': label,
         'percent': percent.toStringAsFixed(1),
         'displayWidth': displayWidth.toStringAsFixed(1),
         'hasPercentVal': hasPercentVal,

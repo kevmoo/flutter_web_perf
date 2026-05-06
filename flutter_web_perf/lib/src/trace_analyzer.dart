@@ -45,18 +45,34 @@ class TraceAnalyzer {
         (SELECT COUNT(*) FROM slice WHERE name = 'AnimationFrame') AS processed_count;
     ''';
 
-    final breakdownQuery = '''
+    final sqlCases = PerformanceCategory.values
+        .where((c) => c.sqlPatterns.isNotEmpty)
+        .map((c) {
+          final conditions = c.sqlPatterns
+              .map((pattern) {
+                if (pattern.contains('%')) return "s.name LIKE '$pattern'";
+                return "s.name = '$pattern'";
+              })
+              .join(' OR ');
+          return "          WHEN $conditions THEN '${c.label}'";
+        })
+        .join('\n');
+
+    final sqlWhere = PerformanceCategory.values
+        .where((c) => c.sqlPatterns.isNotEmpty)
+        .expand((c) => c.sqlPatterns)
+        .map(
+          (pattern) => pattern.contains('%')
+              ? "s.name LIKE '$pattern'"
+              : "s.name = '$pattern'",
+        )
+        .join(' OR ');
+
+    final breakdownQuery =
+        '''
       SELECT
         CASE
-          WHEN s.name = 'BUILD' OR s.name = 'Build' OR s.name LIKE 'BuildOwner%' THEN 'Flutter Build'
-          WHEN s.name = 'LAYOUT' OR s.name = 'Layout' OR s.name LIKE 'LAYOUT%' OR s.name LIKE 'RenderObject.performLayout%' THEN 'Flutter Layout'
-          WHEN s.name = 'PAINT' OR s.name = 'Paint' OR s.name LIKE 'PAINT%' OR s.name LIKE 'RenderObject.paint%' THEN 'Flutter Paint'
-          WHEN s.name = 'COMPOSITING' THEN 'Flutter Compositing'
-          WHEN s.name = 'Semantics' THEN 'Flutter Semantics'
-          WHEN s.name LIKE 'Raster%' THEN 'Engine Raster'
-          WHEN s.name LIKE '%Script::Execute%' THEN 'JS Scripting'
-          WHEN s.name LIKE '%Render%' THEN 'Browser Rendering'
-          WHEN s.name LIKE '%GC%' OR s.cat LIKE '%gc%' THEN 'GC'
+$sqlCases
           ELSE 'Other'
         END AS category,
         SUM(s.dur) / 1000000.0 AS total_dur_ms
@@ -64,24 +80,7 @@ class TraceAnalyzer {
       LEFT JOIN thread_track tt ON s.track_id = tt.id
       LEFT JOIN thread t ON tt.utid = t.utid
       WHERE (t.name = 'CrRendererMain' OR t.name IS NULL)
-        AND (s.name LIKE '%Script::Execute%'
-             OR s.name LIKE '%Render%'
-             OR s.name LIKE '%GC%'
-             OR s.cat LIKE '%gc%'
-             OR s.name = 'BUILD'
-             OR s.name = 'Build'
-             OR s.name LIKE 'BuildOwner%'
-             OR s.name = 'LAYOUT'
-             OR s.name = 'Layout'
-             OR s.name LIKE 'LAYOUT%'
-             OR s.name LIKE 'RenderObject.performLayout%'
-             OR s.name = 'PAINT'
-             OR s.name = 'Paint'
-             OR s.name LIKE 'PAINT%'
-             OR s.name LIKE 'RenderObject.paint%'
-             OR s.name = 'COMPOSITING'
-             OR s.name = 'Semantics'
-             OR s.name LIKE 'Raster%')
+        AND ($sqlWhere)
       GROUP BY 1;
     ''';
 
@@ -89,7 +88,7 @@ class TraceAnalyzer {
     final qFile = File(p.join(tempDir.path, 'query.sql'));
 
     FrameHealth? frameHealth;
-    final breakdown = <String, double>{};
+    final breakdown = <PerformanceCategory, double>{};
 
     try {
       // 1. Run frame health query
@@ -134,9 +133,10 @@ class TraceAnalyzer {
             if (line.isEmpty) continue;
             final data = line.split(',');
             if (data.length == 2) {
-              final cat = data[0].replaceAll('"', '');
+              final rawCat = data[0].replaceAll('"', '');
+              final cat = PerformanceCategory.fromLabel(rawCat);
               final dur = double.tryParse(data[1]) ?? 0.0;
-              breakdown[cat] = dur;
+              breakdown[cat] = (breakdown[cat] ?? 0.0) + dur;
             }
           }
           break;

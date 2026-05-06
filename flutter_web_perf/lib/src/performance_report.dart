@@ -1,6 +1,46 @@
+enum PerformanceCategory {
+  flutterBuild(
+    label: 'Flutter Build',
+    sqlPatterns: ['BUILD', 'Build', 'BuildOwner%'],
+  ),
+  flutterLayout(
+    label: 'Flutter Layout',
+    sqlPatterns: ['LAYOUT', 'Layout', 'LAYOUT%', 'RenderObject.performLayout%'],
+  ),
+  flutterPaint(
+    label: 'Flutter Paint',
+    sqlPatterns: ['PAINT', 'Paint', 'PAINT%', 'RenderObject.paint%'],
+  ),
+  flutterCompositing(
+    label: 'Flutter Compositing',
+    sqlPatterns: ['COMPOSITING'],
+  ),
+  flutterSemantics(label: 'Flutter Semantics', sqlPatterns: ['Semantics']),
+  engineRaster(label: 'Engine Raster', sqlPatterns: ['Raster%']),
+  jsScripting(label: 'JS Scripting', sqlPatterns: ['%Script::Execute%']),
+  browserRendering(label: 'Browser Rendering', sqlPatterns: ['%Render%']),
+  gc(label: 'GC', sqlPatterns: ['%GC%', '%gc%']),
+  other(label: 'Other', sqlPatterns: []);
+
+  /// The human-readable label displayed in the visual dashboard report
+  final String label;
+
+  /// SQL LIKE/equals patterns used by Perfetto's Trace Processor
+  final List<String> sqlPatterns;
+
+  const PerformanceCategory({required this.label, required this.sqlPatterns});
+
+  static PerformanceCategory fromLabel(String label) {
+    return PerformanceCategory.values.firstWhere(
+      (c) => c.label == label,
+      orElse: () => PerformanceCategory.other,
+    );
+  }
+}
+
 class PerformanceReport {
   final FrameHealth frameHealth;
-  final Map<String, double> timeBreakdown;
+  final Map<PerformanceCategory, double> timeBreakdown;
   final List<SlowTask> slowTasks;
   final List<HotFunction> hotFunctions;
 
