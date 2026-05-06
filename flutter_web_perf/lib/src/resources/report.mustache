@@ -234,6 +234,33 @@
       border-bottom: 2px solid var(--accent-color);
     }
 
+    .copy-btn {
+      background: rgba(56, 189, 248, 0.1);
+      border: 1px solid rgba(56, 189, 248, 0.2);
+      color: var(--accent-color);
+      font-family: 'Outfit', sans-serif;
+      font-size: 0.8rem;
+      font-weight: 600;
+      cursor: pointer;
+      padding: 0.35rem 0.75rem;
+      border-radius: 0.35rem;
+      transition: all 0.2s ease;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .copy-btn:hover {
+      background: rgba(56, 189, 248, 0.2);
+      border-color: var(--accent-color);
+      color: #ffffff;
+      box-shadow: 0 0 8px rgba(56, 189, 248, 0.3);
+    }
+
+    .copy-btn:active {
+      transform: scale(0.95);
+    }
+
     .wasm-panel {
       display: none;
     }
@@ -335,11 +362,17 @@
               <details style="cursor: pointer;">
                 <summary style="color: var(--accent-color); font-size: 0.8rem; margin-bottom: 0.5rem;">View Wasm Instructions</summary>
                 <div class="wasm-tabs">
-                  <div style="display: flex; gap: 0.5rem; margin-bottom: 0.5rem; border-bottom: 1px solid var(--glass-border); padding-bottom: 0.25rem;">
-                    <button class="tab-btn active" onclick="showWasm(this, 'opt-{{index}}')">Optimized (wasm-opt)</button>
-                    {{#hasWasmUnopt}}
-                    <button class="tab-btn" onclick="showWasm(this, 'unopt-{{index}}')">Unoptimized (dart2wasm raw)</button>
-                    {{/hasWasmUnopt}}
+                  <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem; border-bottom: 1px solid var(--glass-border); padding-bottom: 0.25rem;">
+                    <div style="display: flex; gap: 0.5rem;">
+                      <button class="tab-btn active" onclick="showWasm(this, 'opt-{{index}}')">Optimized (wasm-opt)</button>
+                      {{#hasWasmUnopt}}
+                      <button class="tab-btn" onclick="showWasm(this, 'unopt-{{index}}')">Unoptimized (dart2wasm raw)</button>
+                      {{/hasWasmUnopt}}
+                    </div>
+                    <button class="copy-btn" onclick="copyWasmMarkdown(this, '{{name}}', '{{index}}')">
+                      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-right: 4px; vertical-align: -2px;"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
+                      Copy Markdown
+                    </button>
                   </div>
                   
                   <div id="opt-{{index}}" class="wasm-panel active">
@@ -397,6 +430,49 @@
         targetPanel.style.display = 'flex';
         targetPanel.classList.add('active');
       }
+    }
+
+    function copyWasmMarkdown(btn, funcName, index) {
+      const optDiv = document.querySelector('#opt-' + index + ' .code-content');
+      const unoptDiv = document.querySelector('#unopt-' + index + ' .code-content');
+      
+      const optWat = optDiv ? optDiv.textContent.trim() : '';
+      const unoptWat = unoptDiv ? unoptDiv.textContent.trim() : '';
+      
+      let md = '### Hot Function: `' + funcName + '` disassemblies\n\n';
+      
+      if (optWat) {
+        md += '#### Optimized (wasm-opt)\n';
+        md += '```wat\n' + optWat + '\n```\n\n';
+      }
+      
+      if (unoptWat) {
+        md += '#### Unoptimized (dart2wasm raw)\n';
+        md += '```wat\n' + unoptWat + '\n```\n';
+      } else {
+        md += '*(No unoptimized raw disassembly available)*\n';
+      }
+      
+      navigator.clipboard.writeText(md).then(() => {
+        const originalHTML = btn.innerHTML;
+        
+        btn.style.background = 'rgba(34, 197, 94, 0.2)';
+        btn.style.borderColor = '#22c55e';
+        btn.style.color = '#ffffff';
+        btn.innerHTML = `
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-right: 4px; vertical-align: -2px;"><polyline points="20 6 9 17 4 12"></polyline></svg>
+          Copied!
+        `;
+        
+        setTimeout(() => {
+          btn.style.background = '';
+          btn.style.borderColor = '';
+          btn.style.color = '';
+          btn.innerHTML = originalHTML;
+        }, 2000);
+      }).catch(err => {
+        alert('Failed to copy markdown to clipboard: ' + err);
+      });
     }
   </script>
 </body>
