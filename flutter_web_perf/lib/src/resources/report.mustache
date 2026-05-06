@@ -334,9 +334,10 @@
         <thead>
           <tr>
             <th style="width: 5%;">#</th>
-            <th style="width: 45%;">Function</th>
-            <th style="width: 40%;">Location</th>
-            <th style="width: 10%;">Samples</th>
+            <th style="width: 40%;">Function</th>
+            <th style="width: 35%;">Location</th>
+            <th style="width: 10%;">Est. CPU</th>
+            <th style="width: 10%;">Samples / %</th>
           </tr>
         </thead>
         <tbody>
@@ -353,12 +354,15 @@
               {{url}}
               {{/hasGithubUrl}}
             </td>
-            <td class="mono" style="{{#hasWasm}}border-bottom: none;{{/hasWasm}}">{{samples}}</td>
+            <td class="mono" style="{{#hasWasm}}border-bottom: none;{{/hasWasm}}">{{estimatedMs}} ms</td>
+            <td class="mono" style="{{#hasWasm}}border-bottom: none;{{/hasWasm}}">
+              {{samples}} <span style="color: var(--secondary-color); font-size: 0.75rem; font-weight: normal;">({{percent}}%)</span>
+            </td>
           </tr>
           {{#hasWasm}}
           <tr>
             <td></td>
-            <td colspan="3" style="padding-top: 0; padding-bottom: 1.5rem;">
+            <td colspan="4" style="padding-top: 0; padding-bottom: 1.5rem;">
               <details style="cursor: pointer;">
                 <summary style="color: var(--accent-color); font-size: 0.8rem; margin-bottom: 0.5rem;">View Wasm Instructions</summary>
                 <div class="wasm-tabs">

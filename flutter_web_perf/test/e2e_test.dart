@@ -1,14 +1,17 @@
 import 'dart:io';
+import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 
 void main() {
   group('flutter_web_perf E2E', () {
-    setUp(() {
-      // Clean up previous runs
-      final outDir = Directory('out');
-      if (outDir.existsSync()) {
-        outDir.deleteSync(recursive: true);
-      }
+    late Directory tempOutDir;
+
+    setUp(() async {
+      tempOutDir = await Directory.systemTemp.createTemp('e2e_out_');
+    });
+
+    tearDown(() async {
+      await tempOutDir.delete(recursive: true);
     });
 
     test(
@@ -23,6 +26,8 @@ void main() {
           'bin/flutter_web_perf.dart',
           '-t',
           'wasm',
+          '-o',
+          tempOutDir.path,
           '--analyze-hotspot=2',
         ]);
 
@@ -52,12 +57,28 @@ void main() {
               'missing index.',
         );
 
-        expect(File('out/trace.json').existsSync(), isTrue);
-        expect(File('out/profile.json').existsSync(), isTrue);
-        expect(File('out/profile_symbolicated.json').existsSync(), isTrue);
-        expect(File('out/report.html').existsSync(), isTrue);
+        expect(
+          File(p.join(tempOutDir.path, 'trace.json')).existsSync(),
+          isTrue,
+        );
+        expect(
+          File(p.join(tempOutDir.path, 'profile.json')).existsSync(),
+          isTrue,
+        );
+        expect(
+          File(
+            p.join(tempOutDir.path, 'profile_symbolicated.json'),
+          ).existsSync(),
+          isTrue,
+        );
+        expect(
+          File(p.join(tempOutDir.path, 'report.html')).existsSync(),
+          isTrue,
+        );
 
-        final reportContent = File('out/report.html').readAsStringSync();
+        final reportContent = File(
+          p.join(tempOutDir.path, 'report.html'),
+        ).readAsStringSync();
         expect(reportContent, contains('Top 10 Hot Functions'));
       },
       timeout: const Timeout(Duration(minutes: 5)),
@@ -73,6 +94,8 @@ void main() {
         'bin/flutter_web_perf.dart',
         '-t',
         'js',
+        '-o',
+        tempOutDir.path,
       ]);
 
       if (process.exitCode != 0) {
@@ -92,10 +115,16 @@ void main() {
       expect(stdout, contains('=== Performance Report Summary ==='));
       expect(stdout, contains('=== Top 10 Hot Functions ==='));
 
-      expect(File('out/trace.json').existsSync(), isTrue);
-      expect(File('out/profile.json').existsSync(), isTrue);
-      expect(File('out/profile_symbolicated.json').existsSync(), isTrue);
-      expect(File('out/report.html').existsSync(), isTrue);
+      expect(File(p.join(tempOutDir.path, 'trace.json')).existsSync(), isTrue);
+      expect(
+        File(p.join(tempOutDir.path, 'profile.json')).existsSync(),
+        isTrue,
+      );
+      expect(
+        File(p.join(tempOutDir.path, 'profile_symbolicated.json')).existsSync(),
+        isTrue,
+      );
+      expect(File(p.join(tempOutDir.path, 'report.html')).existsSync(), isTrue);
     }, timeout: const Timeout(Duration(minutes: 5)));
   });
 }

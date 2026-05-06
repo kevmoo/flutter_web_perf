@@ -20,6 +20,7 @@ void main() {
             name: 'build',
             url: 'package:flutter/src/widgets/framework.dart',
             samples: 100,
+            percent: 10.0,
             lineNumber: 100,
             columnNumber: 5,
             wasmFunctionIndex: 42,

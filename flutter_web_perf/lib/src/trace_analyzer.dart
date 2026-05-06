@@ -38,7 +38,7 @@ class TraceAnalyzer {
         FROM slice
         WHERE name = 'Scheduler::BeginFrame'
       )
-      SELECT 
+      SELECT
         (SELECT AVG(frame_dur) / 1000000.0 FROM frame_times WHERE frame_dur IS NOT NULL) AS avg_interval_ms,
         (SELECT AVG(dur) / 1000000.0 FROM slice WHERE name = 'AnimationFrame') AS avg_work_ms,
         (SELECT COUNT(*) FROM slice WHERE name = 'Scheduler::BeginFrame') AS requested_count,
@@ -46,8 +46,8 @@ class TraceAnalyzer {
     ''';
 
     final breakdownQuery = '''
-      SELECT 
-        CASE 
+      SELECT
+        CASE
           WHEN name = 'BUILD' OR name = 'Build' OR name LIKE 'BuildOwner%' THEN 'Flutter Build'
           WHEN name = 'LAYOUT' OR name = 'Layout' OR name LIKE 'LAYOUT%' OR name LIKE 'RenderObject.performLayout%' THEN 'Flutter Layout'
           WHEN name = 'PAINT' OR name = 'Paint' OR name LIKE 'PAINT%' OR name LIKE 'RenderObject.paint%' THEN 'Flutter Paint'
@@ -61,9 +61,9 @@ class TraceAnalyzer {
         END AS category,
         SUM(dur) / 1000000.0 AS total_dur_ms
       FROM slice
-      WHERE name LIKE '%Script::Execute%' 
-         OR name LIKE '%Render%' 
-         OR name LIKE '%GC%' 
+      WHERE name LIKE '%Script::Execute%'
+         OR name LIKE '%Render%'
+         OR name LIKE '%GC%'
          OR cat LIKE '%gc%'
          OR name = 'BUILD'
          OR name = 'Build'
@@ -279,6 +279,8 @@ class TraceAnalyzer {
       }
     }
 
+    final totalSamples = profile.samples.length;
+
     final sortedFunctions = exclusiveFunctionCounts.entries.toList()
       ..sort((a, b) => b.value.compareTo(a.value));
 
@@ -293,11 +295,17 @@ class TraceAnalyzer {
             .key;
       }
 
+      final samplesCount = entry.value;
+      final percent = totalSamples > 0
+          ? (samplesCount / totalSamples) * 100
+          : 0.0;
+
       hotFunctions.add(
         HotFunction(
           name: entry.key,
           url: functionUrls[entry.key] ?? '',
-          samples: entry.value,
+          samples: samplesCount,
+          percent: percent,
           lineNumber: hottestLine,
           // Column numbers are generally useless for human-readable output
           columnNumber: null,

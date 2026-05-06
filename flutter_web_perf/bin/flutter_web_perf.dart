@@ -22,6 +22,12 @@ Future<void> main(List<String> arguments) async {
           'Provide the 1-based rank of the hot function to deeply analyze '
           'using Wasm disassembly.',
     )
+    ..addOption(
+      'out-dir',
+      abbr: 'o',
+      defaultsTo: 'out',
+      help: 'The directory to write trace, profile, and report files to.',
+    )
     ..addFlag(
       'analyze-only',
       abbr: 'a',
@@ -37,11 +43,13 @@ Future<void> main(List<String> arguments) async {
     results['analyze-hotspot'] as String? ?? '',
   );
   final appDir = results['app-dir'] as String;
+  final outDir = results['out-dir'] as String;
   final analyzeOnly = results['analyze-only'] as bool? ?? false;
 
   await runApp(
     target: target,
     appDir: appDir,
+    outDir: outDir,
     analyzeOnly: analyzeOnly,
     analyzeHotspotRank: analyzeHotspotRank,
   );

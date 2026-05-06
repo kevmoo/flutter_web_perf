@@ -56,6 +56,8 @@ class HtmlReporter {
         'name': f.name,
         'url': f.url,
         'samples': f.samples,
+        'percent': f.percent.toStringAsFixed(1),
+        'estimatedMs': f.samples,
         'tagClass': isSdk ? 'tag sdk' : 'tag',
         'tagText': isSdk ? 'SDK' : 'App',
         'hasWasm': wasmLines != null,

@@ -17,6 +17,7 @@ enum CompileTarget { js, wasm }
 Future<void> runApp({
   required CompileTarget target,
   required String appDir,
+  required String outDir,
   required bool analyzeOnly,
   int? analyzeHotspotRank,
 }) async {
@@ -28,18 +29,19 @@ Future<void> runApp({
   }
 
   final buildPath = '$appDir/build/web';
-  final outDir = Directory('out');
-  if (!await outDir.exists()) {
-    await outDir.create();
+  final destinationDir = Directory(outDir);
+  if (!await destinationDir.exists()) {
+    await destinationDir.create();
   }
 
-  final traceFile = File('out/trace.json');
-  final profileFile = File('out/profile.json');
+  final traceFile = File(p.join(destinationDir.path, 'trace.json'));
+  final profileFile = File(p.join(destinationDir.path, 'profile.json'));
 
   if (analyzeOnly) {
     if (!traceFile.existsSync() || !profileFile.existsSync()) {
       print(
-        'Error: Cannot run in --analyze-only mode because trace or profile files are missing in out/ directory.',
+        'Error: Cannot run in --analyze-only mode because trace or profile '
+        'files are missing in ${destinationDir.path} directory.',
       );
       print('Please run a full profiling session first.');
       exitCode = 1;
@@ -106,7 +108,9 @@ Future<void> runApp({
         await runFlutterBuild(unoptBuildArgs);
 
         print('Extracting unoptimized Wasm disassembly...');
-        final unoptWatFile = File(p.join(outDir.path, 'main_unoptimized.wat'));
+        final unoptWatFile = File(
+          p.join(destinationDir.path, 'main_unoptimized.wat'),
+        );
         final dumpUnopt = await Process.run('wasm-tools', [
           'print',
           '$buildPath/main.dart.wasm',
@@ -152,7 +156,9 @@ Future<void> runApp({
       sourceMapPath: mapPath,
     );
 
-    final symbolicatedFile = File('out/profile_symbolicated.json');
+    final symbolicatedFile = File(
+      p.join(destinationDir.path, 'profile_symbolicated.json'),
+    );
     await symbolicatedFile.writeAsString(json.encode(symbolicatedProfile));
     print('Saved symbolicated profile to ${symbolicatedFile.absolute.path}');
 
@@ -276,7 +282,7 @@ Future<void> runApp({
 
     if (target == CompileTarget.wasm) {
       print('\n=== Deep Dive Analysis: Extracting Wasm Disassembly ===');
-      final watFile = File(p.join(outDir.path, 'main.wat'));
+      final watFile = File(p.join(destinationDir.path, 'main.wat'));
 
       // 1. Dump the entire Wasm module to WAT once (it's fast with wasm-tools)
       final dumpResult = await Process.run('wasm-tools', [
@@ -297,7 +303,9 @@ Future<void> runApp({
         final instructionsMap = extractWasmFunctions(watFile.path, identifiers);
 
         // 4. Extract unoptimized disassemblies by prepending resolved enclosing class/mixin names
-        final unoptWatFile = File(p.join(outDir.path, 'main_unoptimized.wat'));
+        final unoptWatFile = File(
+          p.join(destinationDir.path, 'main_unoptimized.wat'),
+        );
         if (unoptWatFile.existsSync()) {
           final unoptIdentifiers = <String>[];
           final functionToUnoptId = <HotFunction, String>{};
@@ -391,7 +399,10 @@ Future<void> runApp({
 
     // Generate HTML report (after populating wasmInstructions).
     final htmlReporter = HtmlReporter();
-    await htmlReporter.saveReport(report, 'out/report.html');
+    await htmlReporter.saveReport(
+      report,
+      p.join(destinationDir.path, 'report.html'),
+    );
   } catch (e) {
     print('Error: $e');
   } finally {

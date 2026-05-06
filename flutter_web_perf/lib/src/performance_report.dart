@@ -49,6 +49,7 @@ class HotFunction {
   final String name;
   final String url;
   final int samples;
+  final double percent;
   final int? lineNumber;
   final int? columnNumber;
   final int? wasmFunctionIndex;
@@ -60,6 +61,7 @@ class HotFunction {
     required this.name,
     required this.url,
     required this.samples,
+    required this.percent,
     this.lineNumber,
     this.columnNumber,
     this.wasmFunctionIndex,
