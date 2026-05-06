@@ -35,6 +35,13 @@ Future<void> runApp(List<String> arguments) async {
       help:
           'Provide the 1-based rank of the hot function to deeply analyze '
           'using Wasm disassembly.',
+    )
+    ..addFlag(
+      'analyze-only',
+      abbr: 'a',
+      negatable: false,
+      help:
+          'Skip building and profiling; analyze existing trace/profile files in out/ directly.',
     );
 
   final results = parser.parse(arguments);
@@ -44,13 +51,33 @@ Future<void> runApp(List<String> arguments) async {
     results['analyze-hotspot'] as String? ?? '',
   );
   final appDir = results['app-dir'] as String;
+  final analyzeOnly = results['analyze-only'] as bool? ?? false;
+
   print('Hello from flutter_web_perf tool!');
   print('Target: $targetStr');
   print('App Directory: $appDir');
+  if (analyzeOnly) {
+    print('Mode: Analyze-Only (Skipping build & profile runs)');
+  }
+
   final buildPath = '$appDir/build/web';
   final outDir = Directory('out');
   if (!await outDir.exists()) {
     await outDir.create();
+  }
+
+  final traceFile = File('out/trace.json');
+  final profileFile = File('out/profile.json');
+
+  if (analyzeOnly) {
+    if (!traceFile.existsSync() || !profileFile.existsSync()) {
+      print(
+        'Error: Cannot run in --analyze-only mode because trace or profile files are missing in out/ directory.',
+      );
+      print('Please run a full profiling session first.');
+      exitCode = 1;
+      return;
+    }
   }
 
   final server = DevServer();
@@ -69,81 +96,81 @@ Future<void> runApp(List<String> arguments) async {
       print('Build successful.');
     }
 
-    // --- PHASE 1: TRACE RUN ---
-    print('\n=== Phase 1: Trace Run (--profile) ===');
-    print('Building app in $appDir...');
-    final traceBuildArgs = ['build', 'web', '--profile', '--source-maps'];
-    if (target == CompileTarget.wasm) traceBuildArgs.add('--wasm');
-    await runFlutterBuild(traceBuildArgs);
+    if (!analyzeOnly) {
+      // --- PHASE 1: TRACE RUN ---
+      print('\n=== Phase 1: Trace Run (--profile) ===');
+      print('Building app in $appDir...');
+      final traceBuildArgs = ['build', 'web', '--profile', '--source-maps'];
+      if (target == CompileTarget.wasm) traceBuildArgs.add('--wasm');
+      await runFlutterBuild(traceBuildArgs);
 
-    var port = await server.start(buildPath);
-    var url = 'http://localhost:$port';
-    await controller.start(url);
-    print('Chrome started and navigated to $url');
+      var port = await server.start(buildPath);
+      var url = 'http://localhost:$port';
+      await controller.start(url);
+      print('Chrome started and navigated to $url');
 
-    await controller.startTracing();
-    await Future<void>.delayed(const Duration(seconds: 5));
-    final events = await controller.stopTracing();
+      await controller.startTracing();
+      await Future<void>.delayed(const Duration(seconds: 5));
+      final events = await controller.stopTracing();
 
-    print('Collected ${events.length} trace events.');
-    final traceFile = File('out/trace.json');
-    await traceFile.writeAsString(json.encode(events));
-    print('Saved trace data to ${traceFile.absolute.path}');
+      print('Collected ${events.length} trace events.');
+      await traceFile.writeAsString(json.encode(events));
+      print('Saved trace data to ${traceFile.absolute.path}');
 
-    await controller.stop();
-    await server.stop();
+      await controller.stop();
+      await server.stop();
 
-    // --- PHASE 2: PROFILE RUN ---
-    print('\n=== Phase 2: Profile Run (--release) ===');
+      // --- PHASE 2: PROFILE RUN ---
+      print('\n=== Phase 2: Profile Run (--release) ===');
 
-    // Compile unoptimized build first to capture unoptimized disassembly for
-    // comparison
-    if (target == CompileTarget.wasm) {
-      print('Building unoptimized app in $appDir for comparison (-O 0)...');
-      final unoptBuildArgs = [
-        'build',
-        'web',
-        '--release',
-        '--source-maps',
-        '-O',
-        '0',
-        '--wasm',
-      ];
-      await runFlutterBuild(unoptBuildArgs);
+      // Compile unoptimized build first to capture unoptimized disassembly for
+      // comparison
+      if (target == CompileTarget.wasm) {
+        print('Building unoptimized app in $appDir for comparison (-O 0)...');
+        final unoptBuildArgs = [
+          'build',
+          'web',
+          '--release',
+          '--source-maps',
+          '-O',
+          '0',
+          '--wasm',
+        ];
+        await runFlutterBuild(unoptBuildArgs);
 
-      print('Extracting unoptimized Wasm disassembly...');
-      final unoptWatFile = File(p.join(outDir.path, 'main_unoptimized.wat'));
-      final dumpUnopt = await Process.run('wasm-tools', [
-        'print',
-        '$buildPath/main.dart.wasm',
-        '-o',
-        unoptWatFile.path,
-      ]);
-      if (dumpUnopt.exitCode != 0) {
-        print('Failed to dump unoptimized WAT: ${dumpUnopt.stderr}');
+        print('Extracting unoptimized Wasm disassembly...');
+        final unoptWatFile = File(p.join(outDir.path, 'main_unoptimized.wat'));
+        final dumpUnopt = await Process.run('wasm-tools', [
+          'print',
+          '$buildPath/main.dart.wasm',
+          '-o',
+          unoptWatFile.path,
+        ]);
+        if (dumpUnopt.exitCode != 0) {
+          print('Failed to dump unoptimized WAT: ${dumpUnopt.stderr}');
+        }
       }
+
+      print('Building fully optimized app in $appDir (--release)...');
+      final profileBuildArgs = ['build', 'web', '--release', '--source-maps'];
+      if (target == CompileTarget.wasm) profileBuildArgs.add('--wasm');
+      await runFlutterBuild(profileBuildArgs);
+
+      port = await server.start(buildPath);
+      url = 'http://localhost:$port';
+      await controller.start(url, enableDebugger: false);
+      print('Chrome started and navigated to $url');
+
+      await controller.startProfiling();
+      await Future<void>.delayed(const Duration(seconds: 5));
+      final profile = await controller.stopProfiling();
+
+      await profileFile.writeAsString(json.encode(profile));
+      print('Saved profile data to ${profileFile.absolute.path}');
+
+      await controller.stop();
+      await server.stop();
     }
-
-    print('Building fully optimized app in $appDir (--release)...');
-    final profileBuildArgs = ['build', 'web', '--release', '--source-maps'];
-    if (target == CompileTarget.wasm) profileBuildArgs.add('--wasm');
-    await runFlutterBuild(profileBuildArgs);
-
-    port = await server.start(buildPath);
-    url = 'http://localhost:$port';
-    await controller.start(url, enableDebugger: false);
-    print('Chrome started and navigated to $url');
-
-    await controller.startProfiling();
-    await Future<void>.delayed(const Duration(seconds: 5));
-    final profile = await controller.stopProfiling();
-
-    final profileFile = File('out/profile.json');
-    await profileFile.writeAsString(json.encode(profile));
-    print('Saved profile data to ${profileFile.absolute.path}');
-
-    await controller.stop();
-    await server.stop();
 
     // --- ANALYSIS ---
     print('\n=== Phase 3: Analysis ===');
