@@ -18,7 +18,7 @@ void main() {
           'Starting Wasm E2E run (this will take a while as it builds '
           'Flutter Web)...',
         );
-        final process = await Process.run('dart', [
+        final process = await Process.run(Platform.resolvedExecutable, [
           'run',
           'bin/flutter_web_perf.dart',
           '-t',
@@ -68,7 +68,7 @@ void main() {
         'Starting JS E2E run (this will take a while as it builds '
         'Flutter Web)...',
       );
-      final process = await Process.run('dart', [
+      final process = await Process.run(Platform.resolvedExecutable, [
         'run',
         'bin/flutter_web_perf.dart',
         '-t',
