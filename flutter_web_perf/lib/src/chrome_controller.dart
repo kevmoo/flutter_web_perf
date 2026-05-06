@@ -10,7 +10,7 @@ class ChromeController {
   WipConnection? _connection;
   Directory? _tempDir;
 
-  Future<void> start(String url) async {
+  Future<void> start(String url, {bool enableDebugger = true}) async {
     // TODO: Find Chrome executable path portably
     final chromePath =
         '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome'; // Hardcoded for Mac for now
@@ -28,7 +28,7 @@ class ChromeController {
 
     // Wait for file to exist
     var attempts = 0;
-    while (!await activePortFile.exists() && attempts < 20) {
+    while (!await activePortFile.exists() && attempts < 150) {
       await Future<void>.delayed(const Duration(milliseconds: 100));
       attempts++;
     }
@@ -70,7 +70,20 @@ class ChromeController {
     print('Connected to Chrome!');
 
     // Enable Debugger domain to see script events
-    await _connection?.sendCommand('Debugger.enable');
+    if (enableDebugger) {
+      await _connection?.sendCommand('Debugger.enable');
+
+      _connection?.onNotification.listen((notification) {
+        if (notification.method == 'Debugger.scriptParsed') {
+          final params = notification.params as Map<String, dynamic>;
+          final url = params['url'] as String;
+          final sourceMapURL = params['sourceMapURL'] as String?;
+          if (url.contains('main.dart.js')) {
+            print('Found main.dart.js! SourceMap URL: $sourceMapURL');
+          }
+        }
+      });
+    }
 
     // Enable Runtime domain to see console logs
     await _connection?.sendCommand('Runtime.enable');
@@ -88,17 +101,6 @@ class ChromeController {
         }
         if (message.isNotEmpty) {
           print('Chrome Console [$type]: $message');
-        }
-      }
-    });
-
-    _connection?.onNotification.listen((notification) {
-      if (notification.method == 'Debugger.scriptParsed') {
-        final params = notification.params as Map<String, dynamic>;
-        final url = params['url'] as String;
-        final sourceMapURL = params['sourceMapURL'] as String?;
-        if (url.contains('main.dart.js')) {
-          print('Found main.dart.js! SourceMap URL: $sourceMapURL');
         }
       }
     });

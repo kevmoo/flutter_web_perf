@@ -95,7 +95,7 @@ Future<void> runApp(List<String> arguments) async {
 
     port = await server.start(buildPath);
     url = 'http://localhost:$port';
-    await controller.start(url);
+    await controller.start(url, enableDebugger: false);
     print('Chrome started and navigated to $url');
 
     await controller.startProfiling();
