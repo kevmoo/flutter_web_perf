@@ -10,19 +10,18 @@ class HtmlReporter {
     final templateString = utf8.decode(templateBytes);
     final template = Template(templateString, name: 'report.mustache');
 
-    // Prepare data for template
-    final maxDur = report.timeBreakdown.values.fold(
-      0.0,
-      (a, b) => a > b ? a : b,
-    );
+    // Prepare data for template (Concept 1: Total Duration Normalization)
+    final totalDur = report.timeBreakdown.values.isEmpty
+        ? 1.0
+        : report.timeBreakdown.values.reduce((a, b) => a + b);
 
     final timeBreakdownData = report.timeBreakdown.entries.map((e) {
       final duration = e.value;
-      final percent = maxDur > 0 ? (duration / maxDur) * 100 : 0;
+      final percent = totalDur > 0 ? (duration / totalDur) * 100 : 0;
       return {
         'category': e.key,
-        'percent': percent.toStringAsFixed(2),
-        'durationMs': duration.toStringAsFixed(2),
+        'percent': percent.toStringAsFixed(1),
+        'durationMs': duration.toStringAsFixed(1),
       };
     }).toList();
 

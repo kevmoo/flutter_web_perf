@@ -48,37 +48,40 @@ class TraceAnalyzer {
     final breakdownQuery = '''
       SELECT
         CASE
-          WHEN name = 'BUILD' OR name = 'Build' OR name LIKE 'BuildOwner%' THEN 'Flutter Build'
-          WHEN name = 'LAYOUT' OR name = 'Layout' OR name LIKE 'LAYOUT%' OR name LIKE 'RenderObject.performLayout%' THEN 'Flutter Layout'
-          WHEN name = 'PAINT' OR name = 'Paint' OR name LIKE 'PAINT%' OR name LIKE 'RenderObject.paint%' THEN 'Flutter Paint'
-          WHEN name = 'COMPOSITING' THEN 'Flutter Compositing'
-          WHEN name = 'Semantics' THEN 'Flutter Semantics'
-          WHEN name LIKE 'Raster%' THEN 'Engine Raster'
-          WHEN name LIKE '%Script::Execute%' THEN 'JS Scripting'
-          WHEN name LIKE '%Render%' THEN 'Browser Rendering'
-          WHEN name LIKE '%GC%' OR cat LIKE '%gc%' THEN 'GC'
+          WHEN s.name = 'BUILD' OR s.name = 'Build' OR s.name LIKE 'BuildOwner%' THEN 'Flutter Build'
+          WHEN s.name = 'LAYOUT' OR s.name = 'Layout' OR s.name LIKE 'LAYOUT%' OR s.name LIKE 'RenderObject.performLayout%' THEN 'Flutter Layout'
+          WHEN s.name = 'PAINT' OR s.name = 'Paint' OR s.name LIKE 'PAINT%' OR s.name LIKE 'RenderObject.paint%' THEN 'Flutter Paint'
+          WHEN s.name = 'COMPOSITING' THEN 'Flutter Compositing'
+          WHEN s.name = 'Semantics' THEN 'Flutter Semantics'
+          WHEN s.name LIKE 'Raster%' THEN 'Engine Raster'
+          WHEN s.name LIKE '%Script::Execute%' THEN 'JS Scripting'
+          WHEN s.name LIKE '%Render%' THEN 'Browser Rendering'
+          WHEN s.name LIKE '%GC%' OR s.cat LIKE '%gc%' THEN 'GC'
           ELSE 'Other'
         END AS category,
-        SUM(dur) / 1000000.0 AS total_dur_ms
-      FROM slice
-      WHERE name LIKE '%Script::Execute%'
-         OR name LIKE '%Render%'
-         OR name LIKE '%GC%'
-         OR cat LIKE '%gc%'
-         OR name = 'BUILD'
-         OR name = 'Build'
-         OR name LIKE 'BuildOwner%'
-         OR name = 'LAYOUT'
-         OR name = 'Layout'
-         OR name LIKE 'LAYOUT%'
-         OR name LIKE 'RenderObject.performLayout%'
-         OR name = 'PAINT'
-         OR name = 'Paint'
-         OR name LIKE 'PAINT%'
-         OR name LIKE 'RenderObject.paint%'
-         OR name = 'COMPOSITING'
-         OR name = 'Semantics'
-         OR name LIKE 'Raster%'
+        SUM(s.dur) / 1000000.0 AS total_dur_ms
+      FROM slice s
+      LEFT JOIN thread_track tt ON s.track_id = tt.id
+      LEFT JOIN thread t ON tt.utid = t.utid
+      WHERE (t.name = 'CrRendererMain' OR t.name IS NULL)
+        AND (s.name LIKE '%Script::Execute%'
+             OR s.name LIKE '%Render%'
+             OR s.name LIKE '%GC%'
+             OR s.cat LIKE '%gc%'
+             OR s.name = 'BUILD'
+             OR s.name = 'Build'
+             OR s.name LIKE 'BuildOwner%'
+             OR s.name = 'LAYOUT'
+             OR s.name = 'Layout'
+             OR s.name LIKE 'LAYOUT%'
+             OR s.name LIKE 'RenderObject.performLayout%'
+             OR s.name = 'PAINT'
+             OR s.name = 'Paint'
+             OR s.name LIKE 'PAINT%'
+             OR s.name LIKE 'RenderObject.paint%'
+             OR s.name = 'COMPOSITING'
+             OR s.name = 'Semantics'
+             OR s.name LIKE 'Raster%')
       GROUP BY 1;
     ''';
 
