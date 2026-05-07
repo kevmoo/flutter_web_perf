@@ -29,48 +29,47 @@ Future<void> runApp({
     analyzeHotspotRank: analyzeHotspotRank,
     samplingIntervalUs: samplingIntervalUs,
   );
-  await runner.run();
+  await runner._run();
 }
 
 class _AppRunner {
-  final CompileTarget target;
-  final String appDir;
-  final String outDir;
-  final bool analyzeOnly;
-  final int? analyzeHotspotRank;
-  final int? samplingIntervalUs;
+  final CompileTarget _target;
+  final String _appDir;
+  final bool _analyzeOnly;
+  final int? _analyzeHotspotRank;
+  final int? _samplingIntervalUs;
 
-  late final String buildPath;
-  late final PerformanceReportDirectory reportDir;
-  final server = DevServer();
-  final controller = ChromeController();
+  late final String _buildPath;
+  late final PerformanceReportDirectory _reportDir;
+  final _server = DevServer();
+  final _controller = ChromeController();
 
   _AppRunner({
-    required this.target,
-    required this.appDir,
-    required this.outDir,
-    required this.analyzeOnly,
-    this.analyzeHotspotRank,
-    this.samplingIntervalUs,
-  }) {
-    buildPath = '$appDir/build/web';
-    reportDir = PerformanceReportDirectory(outDir);
+    required this._target,
+    required String appDir,
+    required String outDir,
+    required this._analyzeOnly,
+    this._analyzeHotspotRank,
+    this._samplingIntervalUs,
+  }) : _appDir = appDir {
+    _buildPath = '$appDir/build/web';
+    _reportDir = PerformanceReportDirectory(outDir);
   }
 
-  Future<void> run() async {
+  Future<void> _run() async {
     print('Hello from flutter_web_perf tool!');
-    print('Target: ${target.name}');
-    print('App Directory: $appDir');
-    if (analyzeOnly) {
+    print('Target: ${_target.name}');
+    print('App Directory: $_appDir');
+    if (_analyzeOnly) {
       print('Mode: Analyze-Only (Skipping build & profile runs)');
     }
 
-    if (analyzeOnly) {
-      if (!reportDir.traceFile.existsSync() ||
-          !reportDir.profileFile.existsSync()) {
+    if (_analyzeOnly) {
+      if (!_reportDir.traceFile.existsSync() ||
+          !_reportDir.profileFile.existsSync()) {
         print(
           'Error: Cannot run in --analyze-only mode because trace or profile '
-          'files are missing in ${reportDir.path} directory.',
+          'files are missing in ${_reportDir.path} directory.',
         );
         print('Please run a full profiling session first.');
         exitCode = 1;
@@ -79,7 +78,7 @@ class _AppRunner {
     }
 
     try {
-      if (!analyzeOnly) {
+      if (!_analyzeOnly) {
         await _runTracePhase();
         await _runProfilePhase();
       }
@@ -88,8 +87,8 @@ class _AppRunner {
     } catch (e) {
       print('Error: $e');
     } finally {
-      await controller.stop();
-      await server.stop();
+      await _controller.stop();
+      await _server.stop();
       print('Stopped server and Chrome.');
     }
   }
@@ -98,7 +97,7 @@ class _AppRunner {
     final buildResult = await Process.run(
       'flutter',
       args,
-      workingDirectory: appDir,
+      workingDirectory: _appDir,
     );
     if (buildResult.exitCode != 0) {
       throw Exception('Build failed!\n${buildResult.stderr}');
@@ -109,26 +108,26 @@ class _AppRunner {
   Future<void> _runTracePhase() async {
     // --- PHASE 1: TRACE RUN ---
     print('\n=== Phase 1: Trace Run (--profile) ===');
-    print('Building app in $appDir...');
+    print('Building app in $_appDir...');
     final traceBuildArgs = ['build', 'web', '--profile', '--source-maps'];
-    if (target == CompileTarget.wasm) traceBuildArgs.add('--wasm');
+    if (_target == CompileTarget.wasm) traceBuildArgs.add('--wasm');
     await _runFlutterBuild(traceBuildArgs);
 
-    final port = await server.start(buildPath);
+    final port = await _server.start(_buildPath);
     final url = 'http://localhost:$port';
-    await controller.start(url);
+    await _controller.start(url);
     print('Chrome started and navigated to $url');
 
-    await controller.startTracing();
+    await _controller.startTracing();
     await Future<void>.delayed(const Duration(seconds: 5));
-    final events = await controller.stopTracing();
+    final events = await _controller.stopTracing();
 
     print('Collected ${events.length} trace events.');
-    await reportDir.traceFile.writeAsString(json.encode(events));
-    print('Saved trace data to ${reportDir.traceFile.absolute.path}');
+    await _reportDir.traceFile.writeAsString(json.encode(events));
+    print('Saved trace data to ${_reportDir.traceFile.absolute.path}');
 
-    await controller.stop();
-    await server.stop();
+    await _controller.stop();
+    await _server.stop();
   }
 
   Future<void> _runProfilePhase() async {
@@ -137,8 +136,8 @@ class _AppRunner {
 
     // Compile unoptimized build first to capture unoptimized disassembly for
     // comparison
-    if (target == CompileTarget.wasm) {
-      print('Building unoptimized app in $appDir for comparison (-O 0)...');
+    if (_target == CompileTarget.wasm) {
+      print('Building unoptimized app in $_appDir for comparison (-O 0)...');
       final unoptBuildArgs = [
         'build',
         'web',
@@ -151,10 +150,10 @@ class _AppRunner {
       await _runFlutterBuild(unoptBuildArgs);
 
       print('Extracting unoptimized Wasm disassembly...');
-      final unoptWatFile = reportDir.unoptimizedWatFile;
+      final unoptWatFile = _reportDir.unoptimizedWatFile;
       final dumpUnopt = await Process.run('wasm-tools', [
         'print',
-        '$buildPath/main.dart.wasm',
+        '$_buildPath/main.dart.wasm',
         '-o',
         unoptWatFile.path,
       ]);
@@ -163,52 +162,52 @@ class _AppRunner {
       }
     }
 
-    print('Building fully optimized app in $appDir (--release)...');
+    print('Building fully optimized app in $_appDir (--release)...');
     final profileBuildArgs = ['build', 'web', '--release', '--source-maps'];
-    if (target == CompileTarget.wasm) profileBuildArgs.add('--wasm');
+    if (_target == CompileTarget.wasm) profileBuildArgs.add('--wasm');
     await _runFlutterBuild(profileBuildArgs);
 
-    final port = await server.start(buildPath);
+    final port = await _server.start(_buildPath);
     final url = 'http://localhost:$port';
-    await controller.start(url, enableDebugger: false);
+    await _controller.start(url, enableDebugger: false);
     print('Chrome started and navigated to $url');
 
-    await controller.startProfiling(intervalUs: samplingIntervalUs);
-    await controller.startHeapAllocationProfiling();
+    await _controller.startProfiling(intervalUs: _samplingIntervalUs);
+    await _controller.startHeapAllocationProfiling();
     await Future<void>.delayed(const Duration(seconds: 5));
-    final profile = await controller.stopProfiling();
-    final allocations = await controller.stopHeapAllocationProfiling();
+    final profile = await _controller.stopProfiling();
+    final allocations = await _controller.stopHeapAllocationProfiling();
 
-    await reportDir.profileFile.writeAsString(json.encode(profile));
-    print('Saved profile data to ${reportDir.profileFile.absolute.path}');
-    await reportDir.allocationsFile.writeAsString(json.encode(allocations));
+    await _reportDir.profileFile.writeAsString(json.encode(profile));
+    print('Saved profile data to ${_reportDir.profileFile.absolute.path}');
+    await _reportDir.allocationsFile.writeAsString(json.encode(allocations));
     print(
       'Saved heap allocation data to '
-      '${reportDir.allocationsFile.absolute.path}',
+      '${_reportDir.allocationsFile.absolute.path}',
     );
 
-    await controller.stop();
-    await server.stop();
+    await _controller.stop();
+    await _server.stop();
   }
 
   Future<void> _runAnalysisPhase() async {
     // --- ANALYSIS ---
     print('\n=== Phase 3: Analysis ===');
-    final mapPath = target == CompileTarget.wasm
-        ? '$buildPath/main.dart.wasm.map'
-        : '$buildPath/main.dart.js.map';
+    final mapPath = _target == CompileTarget.wasm
+        ? '$_buildPath/main.dart.wasm.map'
+        : '$_buildPath/main.dart.js.map';
 
     final analyzer = TraceAnalyzer(
-      reportDir.traceFile.path,
+      _reportDir.traceFile.path,
       sourceMapPath: mapPath,
     );
 
     final symbolicatedProfile = await symbolicateProfile(
-      profilePath: reportDir.profileFile.path,
+      profilePath: _reportDir.profileFile.path,
       sourceMapPath: mapPath,
     );
 
-    final symbolicatedFile = reportDir.symbolicatedProfileFile;
+    final symbolicatedFile = _reportDir.symbolicatedProfileFile;
     await symbolicatedFile.writeAsString(json.encode(symbolicatedProfile));
     print('Saved symbolicated profile to ${symbolicatedFile.absolute.path}');
 
@@ -217,7 +216,7 @@ class _AppRunner {
     );
 
     // Parse and attribute dynamic memory allocations from Heap Sampler
-    if (reportDir.allocationsFile.existsSync()) {
+    if (_reportDir.allocationsFile.existsSync()) {
       _attributeAllocations(report);
     }
 
@@ -254,18 +253,18 @@ class _AppRunner {
 
     await _printHotspotsAndSources(report, flutterSha, localFlutterRepo);
 
-    if (target == CompileTarget.wasm) {
+    if (_target == CompileTarget.wasm) {
       await _runWasmDeepDive(report, localFlutterRepo);
     }
 
     // Generate HTML report (after populating wasmInstructions).
     final htmlReporter = HtmlReporter();
-    await htmlReporter.saveReport(report, reportDir.reportHtmlFile.path);
+    await htmlReporter.saveReport(report, _reportDir.reportHtmlFile.path);
   }
 
   void _attributeAllocations(PerformanceReport report) {
     try {
-      final heapContent = reportDir.allocationsFile.readAsStringSync();
+      final heapContent = _reportDir.allocationsFile.readAsStringSync();
       final heapData = json.decode(heapContent) as Map<String, dynamic>;
       final head = heapData['head'] as Map<String, dynamic>?;
       if (head != null) {
@@ -343,7 +342,7 @@ class _AppRunner {
           final localFilePath = resolveLocalFilePath(
             f.url,
             localFlutterRepo: localFlutterRepo,
-            appDir: appDir,
+            appDir: _appDir,
           );
 
           if (localFilePath != null) {
@@ -414,12 +413,12 @@ class _AppRunner {
     String localFlutterRepo,
   ) async {
     print('\n=== Deep Dive Analysis: Extracting Wasm Disassembly ===');
-    final watFile = reportDir.mainWatFile;
+    final watFile = _reportDir.mainWatFile;
 
     // 1. Dump the entire Wasm module to WAT once (it's fast with wasm-tools)
     final dumpResult = await Process.run('wasm-tools', [
       'print',
-      '$buildPath/main.dart.wasm',
+      '$_buildPath/main.dart.wasm',
       '-o',
       watFile.path,
     ]);
@@ -436,7 +435,7 @@ class _AppRunner {
 
       // 4. Extract unoptimized disassemblies by prepending resolved enclosing
       // class/mixin names
-      final unoptWatFile = reportDir.unoptimizedWatFile;
+      final unoptWatFile = _reportDir.unoptimizedWatFile;
       if (unoptWatFile.existsSync()) {
         final unoptIdentifiers = <String>[];
         final functionToUnoptId = <HotFunction, String>{};
@@ -447,7 +446,7 @@ class _AppRunner {
           final localFilePath = resolveLocalFilePath(
             f.url,
             localFlutterRepo: localFlutterRepo,
-            appDir: appDir,
+            appDir: _appDir,
           );
 
           if (localFilePath != null && f.lineNumber != null) {
@@ -500,13 +499,13 @@ class _AppRunner {
       );
 
       // Keep the console output logic for the specific rank requested
-      if (analyzeHotspotRank != null) {
-        if (analyzeHotspotRank! >= 1 &&
-            analyzeHotspotRank! <= report.hotFunctions.length) {
-          final targetFunc = report.hotFunctions[analyzeHotspotRank! - 1];
+      if (_analyzeHotspotRank != null) {
+        if (_analyzeHotspotRank >= 1 &&
+            _analyzeHotspotRank <= report.hotFunctions.length) {
+          final targetFunc = report.hotFunctions[_analyzeHotspotRank - 1];
           if (targetFunc.wasmInstructions != null) {
             print(
-              '\nDeep Dive Analysis for #$analyzeHotspotRank: '
+              '\nDeep Dive Analysis for #$_analyzeHotspotRank: '
               '${targetFunc.name}\n',
             );
             print(targetFunc.wasmInstructions);
@@ -518,7 +517,7 @@ class _AppRunner {
           }
         } else {
           print(
-            '\nError: --analyze-hotspot rank $analyzeHotspotRank '
+            '\nError: --analyze-hotspot rank $_analyzeHotspotRank '
             'is out of bounds.',
           );
         }

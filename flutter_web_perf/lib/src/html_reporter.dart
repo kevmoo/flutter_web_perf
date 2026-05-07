@@ -68,11 +68,11 @@ class HtmlReporter {
       };
     }).toList();
 
-    final hotFunctionsData = <Map>[];
+    final hotFunctionsData = <Map<String, dynamic>>[];
     for (var i = 0; i < report.hotFunctions.length; i++) {
       final f = report.hotFunctions[i];
 
-      List<Map>? wasmLines;
+      List<Map<String, dynamic>>? wasmLines;
       if (f.wasmInstructions != null) {
         final lines = const LineSplitter().convert(f.wasmInstructions!);
         wasmLines = [];
@@ -86,7 +86,7 @@ class HtmlReporter {
         }
       }
 
-      List<Map>? wasmUnoptLines;
+      List<Map<String, dynamic>>? wasmUnoptLines;
       if (f.wasmInstructionsUnoptimized != null) {
         final lines = const LineSplitter().convert(
           f.wasmInstructionsUnoptimized!,
@@ -102,7 +102,7 @@ class HtmlReporter {
         }
       }
 
-      Map? wasmAnalysisData;
+      Map<String, dynamic>? wasmAnalysisData;
       if (f.wasmAnalysis != null) {
         wasmAnalysisData = {
           'totalInstructions': f.wasmAnalysis!.totalInstructions,
@@ -116,7 +116,7 @@ class HtmlReporter {
         };
       }
 
-      Map? wasmUnoptAnalysisData;
+      Map<String, dynamic>? wasmUnoptAnalysisData;
       if (f.wasmAnalysisUnoptimized != null) {
         wasmUnoptAnalysisData = {
           'totalInstructions': f.wasmAnalysisUnoptimized!.totalInstructions,
