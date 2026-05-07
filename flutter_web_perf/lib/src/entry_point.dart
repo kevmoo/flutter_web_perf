@@ -1,8 +1,6 @@
 import 'dart:convert';
 import 'dart:io';
 
-import 'package:path/path.dart' as p;
-
 import 'chrome_controller.dart';
 import 'html_reporter.dart';
 import 'performance_report.dart';
@@ -273,21 +271,11 @@ Future<void> runApp({
       // Source-Aware Hotspot Analysis!
       if (f.lineNumber != null) {
         try {
-          String? localFilePath;
-          if (f.url.startsWith('org-dartlang-sdk:///lib/')) {
-            localFilePath = f.url.replaceFirst(
-              'org-dartlang-sdk:///lib/',
-              '$localFlutterRepo/engine/src/flutter/lib/web_ui/lib/',
-            );
-          } else if (f.url.startsWith('package:')) {
-            localFilePath = resolvePackageUri(f.url, p.absolute(appDir));
-          } else if (f.url.startsWith('file://')) {
-            try {
-              localFilePath = Uri.parse(f.url).toFilePath();
-            } catch (_) {}
-          } else if (p.isAbsolute(f.url)) {
-            localFilePath = f.url;
-          }
+          final localFilePath = resolveLocalFilePath(
+            f.url,
+            localFlutterRepo: localFlutterRepo,
+            appDir: appDir,
+          );
 
           if (localFilePath != null) {
             final sourceFile = File(localFilePath);
@@ -381,21 +369,11 @@ Future<void> runApp({
           for (final f in report.hotFunctions) {
             String? unoptId;
 
-            String? localFilePath;
-            if (f.url.startsWith('org-dartlang-sdk:///lib/')) {
-              localFilePath = f.url.replaceFirst(
-                'org-dartlang-sdk:///lib/',
-                '$localFlutterRepo/engine/src/flutter/lib/web_ui/lib/',
-              );
-            } else if (f.url.startsWith('package:')) {
-              localFilePath = resolvePackageUri(f.url, p.absolute(appDir));
-            } else if (f.url.startsWith('file://')) {
-              try {
-                localFilePath = Uri.parse(f.url).toFilePath();
-              } catch (_) {}
-            } else if (p.isAbsolute(f.url)) {
-              localFilePath = f.url;
-            }
+            final localFilePath = resolveLocalFilePath(
+              f.url,
+              localFlutterRepo: localFlutterRepo,
+              appDir: appDir,
+            );
 
             if (localFilePath != null && f.lineNumber != null) {
               try {

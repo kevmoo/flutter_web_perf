@@ -243,3 +243,26 @@ String? resolveClassForMethod(
   } catch (_) {}
   return null;
 }
+
+/// Resolves a URL to a local file path.
+String? resolveLocalFilePath(
+  String url, {
+  required String localFlutterRepo,
+  required String appDir,
+}) {
+  if (url.startsWith('org-dartlang-sdk:///lib/')) {
+    return url.replaceFirst(
+      'org-dartlang-sdk:///lib/',
+      '$localFlutterRepo/engine/src/flutter/lib/web_ui/lib/',
+    );
+  } else if (url.startsWith('package:')) {
+    return resolvePackageUri(url, p.absolute(appDir));
+  } else if (url.startsWith('file://')) {
+    try {
+      return Uri.parse(url).toFilePath();
+    } catch (_) {}
+  } else if (p.isAbsolute(url)) {
+    return url;
+  }
+  return null;
+}
