@@ -21,128 +21,177 @@ Future<void> runApp({
   int? analyzeHotspotRank,
   int? samplingIntervalUs,
 }) async {
-  print('Hello from flutter_web_perf tool!');
-  print('Target: ${target.name}');
-  print('App Directory: $appDir');
-  if (analyzeOnly) {
-    print('Mode: Analyze-Only (Skipping build & profile runs)');
-  }
+  final runner = _AppRunner(
+    target: target,
+    appDir: appDir,
+    outDir: outDir,
+    analyzeOnly: analyzeOnly,
+    analyzeHotspotRank: analyzeHotspotRank,
+    samplingIntervalUs: samplingIntervalUs,
+  );
+  await runner.run();
+}
 
-  final buildPath = '$appDir/build/web';
-  final reportDir = PerformanceReportDirectory(outDir);
+class _AppRunner {
+  final CompileTarget target;
+  final String appDir;
+  final String outDir;
+  final bool analyzeOnly;
+  final int? analyzeHotspotRank;
+  final int? samplingIntervalUs;
 
-  if (analyzeOnly) {
-    if (!reportDir.traceFile.existsSync() ||
-        !reportDir.profileFile.existsSync()) {
-      print(
-        'Error: Cannot run in --analyze-only mode because trace or profile '
-        'files are missing in ${reportDir.path} directory.',
-      );
-      print('Please run a full profiling session first.');
-      exitCode = 1;
-      return;
-    }
-  }
-
+  late final String buildPath;
+  late final PerformanceReportDirectory reportDir;
   final server = DevServer();
   final controller = ChromeController();
 
-  try {
-    Future<void> runFlutterBuild(List<String> args) async {
-      final buildResult = await Process.run(
-        'flutter',
-        args,
-        workingDirectory: appDir,
-      );
-      if (buildResult.exitCode != 0) {
-        throw Exception('Build failed!\n${buildResult.stderr}');
-      }
-      print('Build successful.');
+  _AppRunner({
+    required this.target,
+    required this.appDir,
+    required this.outDir,
+    required this.analyzeOnly,
+    this.analyzeHotspotRank,
+    this.samplingIntervalUs,
+  }) {
+    buildPath = '$appDir/build/web';
+    reportDir = PerformanceReportDirectory(outDir);
+  }
+
+  Future<void> run() async {
+    print('Hello from flutter_web_perf tool!');
+    print('Target: ${target.name}');
+    print('App Directory: $appDir');
+    if (analyzeOnly) {
+      print('Mode: Analyze-Only (Skipping build & profile runs)');
     }
 
-    if (!analyzeOnly) {
-      // --- PHASE 1: TRACE RUN ---
-      print('\n=== Phase 1: Trace Run (--profile) ===');
-      print('Building app in $appDir...');
-      final traceBuildArgs = ['build', 'web', '--profile', '--source-maps'];
-      if (target == CompileTarget.wasm) traceBuildArgs.add('--wasm');
-      await runFlutterBuild(traceBuildArgs);
-
-      var port = await server.start(buildPath);
-      var url = 'http://localhost:$port';
-      await controller.start(url);
-      print('Chrome started and navigated to $url');
-
-      await controller.startTracing();
-      await Future<void>.delayed(const Duration(seconds: 5));
-      final events = await controller.stopTracing();
-
-      print('Collected ${events.length} trace events.');
-      await reportDir.traceFile.writeAsString(json.encode(events));
-      print('Saved trace data to ${reportDir.traceFile.absolute.path}');
-
-      await controller.stop();
-      await server.stop();
-
-      // --- PHASE 2: PROFILE RUN ---
-      print('\n=== Phase 2: Profile Run (--release) ===');
-
-      // Compile unoptimized build first to capture unoptimized disassembly for
-      // comparison
-      if (target == CompileTarget.wasm) {
-        print('Building unoptimized app in $appDir for comparison (-O 0)...');
-        final unoptBuildArgs = [
-          'build',
-          'web',
-          '--release',
-          '--source-maps',
-          '-O',
-          '0',
-          '--wasm',
-        ];
-        await runFlutterBuild(unoptBuildArgs);
-
-        print('Extracting unoptimized Wasm disassembly...');
-        final unoptWatFile = reportDir.unoptimizedWatFile;
-        final dumpUnopt = await Process.run('wasm-tools', [
-          'print',
-          '$buildPath/main.dart.wasm',
-          '-o',
-          unoptWatFile.path,
-        ]);
-        if (dumpUnopt.exitCode != 0) {
-          print('Failed to dump unoptimized WAT: ${dumpUnopt.stderr}');
-        }
+    if (analyzeOnly) {
+      if (!reportDir.traceFile.existsSync() ||
+          !reportDir.profileFile.existsSync()) {
+        print(
+          'Error: Cannot run in --analyze-only mode because trace or profile '
+          'files are missing in ${reportDir.path} directory.',
+        );
+        print('Please run a full profiling session first.');
+        exitCode = 1;
+        return;
       }
-
-      print('Building fully optimized app in $appDir (--release)...');
-      final profileBuildArgs = ['build', 'web', '--release', '--source-maps'];
-      if (target == CompileTarget.wasm) profileBuildArgs.add('--wasm');
-      await runFlutterBuild(profileBuildArgs);
-
-      port = await server.start(buildPath);
-      url = 'http://localhost:$port';
-      await controller.start(url, enableDebugger: false);
-      print('Chrome started and navigated to $url');
-
-      await controller.startProfiling(intervalUs: samplingIntervalUs);
-      await controller.startHeapAllocationProfiling();
-      await Future<void>.delayed(const Duration(seconds: 5));
-      final profile = await controller.stopProfiling();
-      final allocations = await controller.stopHeapAllocationProfiling();
-
-      await reportDir.profileFile.writeAsString(json.encode(profile));
-      print('Saved profile data to ${reportDir.profileFile.absolute.path}');
-      await reportDir.allocationsFile.writeAsString(json.encode(allocations));
-      print(
-        'Saved heap allocation data to '
-        '${reportDir.allocationsFile.absolute.path}',
-      );
-
-      await controller.stop();
-      await server.stop();
     }
 
+    try {
+      if (!analyzeOnly) {
+        await _runTracePhase();
+        await _runProfilePhase();
+      }
+
+      await _runAnalysisPhase();
+    } catch (e) {
+      print('Error: $e');
+    } finally {
+      await controller.stop();
+      await server.stop();
+      print('Stopped server and Chrome.');
+    }
+  }
+
+  Future<void> _runFlutterBuild(List<String> args) async {
+    final buildResult = await Process.run(
+      'flutter',
+      args,
+      workingDirectory: appDir,
+    );
+    if (buildResult.exitCode != 0) {
+      throw Exception('Build failed!\n${buildResult.stderr}');
+    }
+    print('Build successful.');
+  }
+
+  Future<void> _runTracePhase() async {
+    // --- PHASE 1: TRACE RUN ---
+    print('\n=== Phase 1: Trace Run (--profile) ===');
+    print('Building app in $appDir...');
+    final traceBuildArgs = ['build', 'web', '--profile', '--source-maps'];
+    if (target == CompileTarget.wasm) traceBuildArgs.add('--wasm');
+    await _runFlutterBuild(traceBuildArgs);
+
+    final port = await server.start(buildPath);
+    final url = 'http://localhost:$port';
+    await controller.start(url);
+    print('Chrome started and navigated to $url');
+
+    await controller.startTracing();
+    await Future<void>.delayed(const Duration(seconds: 5));
+    final events = await controller.stopTracing();
+
+    print('Collected ${events.length} trace events.');
+    await reportDir.traceFile.writeAsString(json.encode(events));
+    print('Saved trace data to ${reportDir.traceFile.absolute.path}');
+
+    await controller.stop();
+    await server.stop();
+  }
+
+  Future<void> _runProfilePhase() async {
+    // --- PHASE 2: PROFILE RUN ---
+    print('\n=== Phase 2: Profile Run (--release) ===');
+
+    // Compile unoptimized build first to capture unoptimized disassembly for
+    // comparison
+    if (target == CompileTarget.wasm) {
+      print('Building unoptimized app in $appDir for comparison (-O 0)...');
+      final unoptBuildArgs = [
+        'build',
+        'web',
+        '--release',
+        '--source-maps',
+        '-O',
+        '0',
+        '--wasm',
+      ];
+      await _runFlutterBuild(unoptBuildArgs);
+
+      print('Extracting unoptimized Wasm disassembly...');
+      final unoptWatFile = reportDir.unoptimizedWatFile;
+      final dumpUnopt = await Process.run('wasm-tools', [
+        'print',
+        '$buildPath/main.dart.wasm',
+        '-o',
+        unoptWatFile.path,
+      ]);
+      if (dumpUnopt.exitCode != 0) {
+        print('Failed to dump unoptimized WAT: ${dumpUnopt.stderr}');
+      }
+    }
+
+    print('Building fully optimized app in $appDir (--release)...');
+    final profileBuildArgs = ['build', 'web', '--release', '--source-maps'];
+    if (target == CompileTarget.wasm) profileBuildArgs.add('--wasm');
+    await _runFlutterBuild(profileBuildArgs);
+
+    final port = await server.start(buildPath);
+    final url = 'http://localhost:$port';
+    await controller.start(url, enableDebugger: false);
+    print('Chrome started and navigated to $url');
+
+    await controller.startProfiling(intervalUs: samplingIntervalUs);
+    await controller.startHeapAllocationProfiling();
+    await Future<void>.delayed(const Duration(seconds: 5));
+    final profile = await controller.stopProfiling();
+    final allocations = await controller.stopHeapAllocationProfiling();
+
+    await reportDir.profileFile.writeAsString(json.encode(profile));
+    print('Saved profile data to ${reportDir.profileFile.absolute.path}');
+    await reportDir.allocationsFile.writeAsString(json.encode(allocations));
+    print(
+      'Saved heap allocation data to '
+      '${reportDir.allocationsFile.absolute.path}',
+    );
+
+    await controller.stop();
+    await server.stop();
+  }
+
+  Future<void> _runAnalysisPhase() async {
     // --- ANALYSIS ---
     print('\n=== Phase 3: Analysis ===');
     final mapPath = target == CompileTarget.wasm
@@ -169,64 +218,7 @@ Future<void> runApp({
 
     // Parse and attribute dynamic memory allocations from Heap Sampler
     if (reportDir.allocationsFile.existsSync()) {
-      try {
-        final heapContent = reportDir.allocationsFile.readAsStringSync();
-        final heapData = json.decode(heapContent) as Map<String, dynamic>;
-        final head = heapData['head'] as Map<String, dynamic>?;
-        if (head != null) {
-          final allocationsByFunction = <String, num>{};
-          final allocationsByWasmIndex = <int, num>{};
-
-          var totalAllocatedBytes = 0;
-
-          void accumulate(Map<String, dynamic> node) {
-            final callFrame = node['callFrame'] as Map<String, dynamic>?;
-            final selfSize = node['selfSize'] as num? ?? 0;
-            if (selfSize > 0) {
-              totalAllocatedBytes += selfSize.toInt();
-              final functionName = callFrame?['functionName'] as String? ?? '';
-              final wasmMatch = RegExp(
-                r'wasm-function\[(\d+)\]',
-              ).firstMatch(functionName);
-              if (wasmMatch != null) {
-                final index = int.parse(wasmMatch.group(1)!);
-                allocationsByWasmIndex[index] =
-                    (allocationsByWasmIndex[index] ?? 0) + selfSize;
-              } else {
-                allocationsByFunction[functionName] =
-                    (allocationsByFunction[functionName] ?? 0) + selfSize;
-              }
-            }
-
-            final children = node['children'] as List?;
-            if (children != null) {
-              for (final child in children) {
-                if (child is Map<String, dynamic>) {
-                  accumulate(child);
-                }
-              }
-            }
-          }
-
-          accumulate(head);
-          report.frameHealth.totalAllocatedBytes = totalAllocatedBytes;
-
-          // Attribute to HotFunction list
-          for (final f in report.hotFunctions) {
-            num? allocatedBytes;
-            if (f.wasmFunctionIndex != null) {
-              allocatedBytes = allocationsByWasmIndex[f.wasmFunctionIndex!];
-            }
-            allocatedBytes ??= allocationsByFunction[f.name];
-
-            if (allocatedBytes != null) {
-              f.allocationsBytes = allocatedBytes.toInt();
-            }
-          }
-        }
-      } catch (e) {
-        print('Warning: Failed to parse allocations profile: $e');
-      }
+      _attributeAllocations(report);
     }
 
     // Get current Flutter SHA
@@ -260,6 +252,83 @@ Future<void> runApp({
       print('${cat.label}: ${dur.toStringAsFixed(2)} ms');
     });
 
+    await _printHotspotsAndSources(report, flutterSha, localFlutterRepo);
+
+    if (target == CompileTarget.wasm) {
+      await _runWasmDeepDive(report, localFlutterRepo);
+    }
+
+    // Generate HTML report (after populating wasmInstructions).
+    final htmlReporter = HtmlReporter();
+    await htmlReporter.saveReport(report, reportDir.reportHtmlFile.path);
+  }
+
+  void _attributeAllocations(PerformanceReport report) {
+    try {
+      final heapContent = reportDir.allocationsFile.readAsStringSync();
+      final heapData = json.decode(heapContent) as Map<String, dynamic>;
+      final head = heapData['head'] as Map<String, dynamic>?;
+      if (head != null) {
+        final allocationsByFunction = <String, num>{};
+        final allocationsByWasmIndex = <int, num>{};
+
+        var totalAllocatedBytes = 0;
+
+        void accumulate(Map<String, dynamic> node) {
+          final callFrame = node['callFrame'] as Map<String, dynamic>?;
+          final selfSize = node['selfSize'] as num? ?? 0;
+          if (selfSize > 0) {
+            totalAllocatedBytes += selfSize.toInt();
+            final functionName = callFrame?['functionName'] as String? ?? '';
+            final wasmMatch = RegExp(
+              r'wasm-function\[(\d+)\]',
+            ).firstMatch(functionName);
+            if (wasmMatch != null) {
+              final index = int.parse(wasmMatch.group(1)!);
+              allocationsByWasmIndex[index] =
+                  (allocationsByWasmIndex[index] ?? 0) + selfSize;
+            } else {
+              allocationsByFunction[functionName] =
+                  (allocationsByFunction[functionName] ?? 0) + selfSize;
+            }
+          }
+
+          final children = node['children'] as List?;
+          if (children != null) {
+            for (final child in children) {
+              if (child is Map<String, dynamic>) {
+                accumulate(child);
+              }
+            }
+          }
+        }
+
+        accumulate(head);
+        report.frameHealth.totalAllocatedBytes = totalAllocatedBytes;
+
+        // Attribute to HotFunction list
+        for (final f in report.hotFunctions) {
+          num? allocatedBytes;
+          if (f.wasmFunctionIndex != null) {
+            allocatedBytes = allocationsByWasmIndex[f.wasmFunctionIndex!];
+          }
+          allocatedBytes ??= allocationsByFunction[f.name];
+
+          if (allocatedBytes != null) {
+            f.allocationsBytes = allocatedBytes.toInt();
+          }
+        }
+      }
+    } catch (e) {
+      print('Warning: Failed to parse allocations profile: $e');
+    }
+  }
+
+  Future<void> _printHotspotsAndSources(
+    PerformanceReport report,
+    String? flutterSha,
+    String localFlutterRepo,
+  ) async {
     print('\n=== Top 10 Hot Functions ===');
     for (var i = 0; i < report.hotFunctions.length; i++) {
       final f = report.hotFunctions[i];
@@ -302,7 +371,8 @@ Future<void> runApp({
                     .last;
                 if (flutterSha != null) {
                   f.githubUrl =
-                      'https://github.com/flutter/flutter/blob/$flutterSha/packages/flutter/lib/$suffix#L$displayLineNumber';
+                      'https://github.com/flutter/flutter/blob/$flutterSha/'
+                      'packages/flutter/lib/$suffix#L$displayLineNumber';
                 }
               }
 
@@ -337,130 +407,124 @@ Future<void> runApp({
         }
       }
     }
+  }
 
-    if (target == CompileTarget.wasm) {
-      print('\n=== Deep Dive Analysis: Extracting Wasm Disassembly ===');
-      final watFile = reportDir.mainWatFile;
+  Future<void> _runWasmDeepDive(
+    PerformanceReport report,
+    String localFlutterRepo,
+  ) async {
+    print('\n=== Deep Dive Analysis: Extracting Wasm Disassembly ===');
+    final watFile = reportDir.mainWatFile;
 
-      // 1. Dump the entire Wasm module to WAT once (it's fast with wasm-tools)
-      final dumpResult = await Process.run('wasm-tools', [
-        'print',
-        '$buildPath/main.dart.wasm',
-        '-o',
-        watFile.path,
-      ]);
+    // 1. Dump the entire Wasm module to WAT once (it's fast with wasm-tools)
+    final dumpResult = await Process.run('wasm-tools', [
+      'print',
+      '$buildPath/main.dart.wasm',
+      '-o',
+      watFile.path,
+    ]);
 
-      if (dumpResult.exitCode == 0) {
-        // 2. Identify all identifiers (names or indices) we want to extract
-        final identifiers = report.hotFunctions
-            .map((f) => f.wasmFunctionIndex?.toString() ?? f.name)
-            .where((id) => id.isNotEmpty)
-            .toList();
+    if (dumpResult.exitCode == 0) {
+      // 2. Identify all identifiers (names or indices) we want to extract
+      final identifiers = report.hotFunctions
+          .map((f) => f.wasmFunctionIndex?.toString() ?? f.name)
+          .where((id) => id.isNotEmpty)
+          .toList();
 
-        // 3. Extract optimized disassemblies
-        final instructionsMap = extractWasmFunctions(watFile.path, identifiers);
+      // 3. Extract optimized disassemblies
+      final instructionsMap = extractWasmFunctions(watFile.path, identifiers);
 
-        // 4. Extract unoptimized disassemblies by prepending resolved enclosing class/mixin names
-        final unoptWatFile = reportDir.unoptimizedWatFile;
-        if (unoptWatFile.existsSync()) {
-          final unoptIdentifiers = <String>[];
-          final functionToUnoptId = <HotFunction, String>{};
+      // 4. Extract unoptimized disassemblies by prepending resolved enclosing
+      // class/mixin names
+      final unoptWatFile = reportDir.unoptimizedWatFile;
+      if (unoptWatFile.existsSync()) {
+        final unoptIdentifiers = <String>[];
+        final functionToUnoptId = <HotFunction, String>{};
 
-          for (final f in report.hotFunctions) {
-            String? unoptId;
+        for (final f in report.hotFunctions) {
+          String? unoptId;
 
-            final localFilePath = resolveLocalFilePath(
-              f.url,
-              localFlutterRepo: localFlutterRepo,
-              appDir: appDir,
-            );
-
-            if (localFilePath != null && f.lineNumber != null) {
-              try {
-                final className = resolveClassForMethod(
-                  localFilePath,
-                  f.lineNumber!,
-                  f.name,
-                );
-                if (className != null) {
-                  unoptId = '$className.${f.name}';
-                }
-              } catch (_) {}
-            }
-
-            unoptId ??= f.name;
-            unoptIdentifiers.add(unoptId);
-            functionToUnoptId[f] = unoptId;
-          }
-
-          final extracted = extractWasmFunctions(
-            unoptWatFile.path,
-            unoptIdentifiers,
+          final localFilePath = resolveLocalFilePath(
+            f.url,
+            localFlutterRepo: localFlutterRepo,
+            appDir: appDir,
           );
 
-          // 5. Populate the report model
-          for (final f in report.hotFunctions) {
-            final id = f.wasmFunctionIndex?.toString() ?? f.name;
-            f.wasmInstructions = instructionsMap[id];
-            f.wasmAnalysis = analyzeWasmInstructions(f.wasmInstructions);
+          if (localFilePath != null && f.lineNumber != null) {
+            try {
+              final className = resolveClassForMethod(
+                localFilePath,
+                f.lineNumber!,
+                f.name,
+              );
+              if (className != null) {
+                unoptId = '$className.${f.name}';
+              }
+            } catch (_) {}
+          }
 
-            final unoptId = functionToUnoptId[f]!;
-            f.wasmInstructionsUnoptimized = extracted[unoptId];
-            f.wasmAnalysisUnoptimized = analyzeWasmInstructions(
-              f.wasmInstructionsUnoptimized,
+          unoptId ??= f.name;
+          unoptIdentifiers.add(unoptId);
+          functionToUnoptId[f] = unoptId;
+        }
+
+        final extracted = extractWasmFunctions(
+          unoptWatFile.path,
+          unoptIdentifiers,
+        );
+
+        // 5. Populate the report model
+        for (final f in report.hotFunctions) {
+          final id = f.wasmFunctionIndex?.toString() ?? f.name;
+          f.wasmInstructions = instructionsMap[id];
+          f.wasmAnalysis = analyzeWasmInstructions(f.wasmInstructions);
+
+          final unoptId = functionToUnoptId[f]!;
+          f.wasmInstructionsUnoptimized = extracted[unoptId];
+          f.wasmAnalysisUnoptimized = analyzeWasmInstructions(
+            f.wasmInstructionsUnoptimized,
+          );
+        }
+      } else {
+        // 5. Populate the report model (optimized only)
+        for (final f in report.hotFunctions) {
+          final id = f.wasmFunctionIndex?.toString() ?? f.name;
+          f.wasmInstructions = instructionsMap[id];
+          f.wasmAnalysis = analyzeWasmInstructions(f.wasmInstructions);
+        }
+      }
+
+      print(
+        'Successfully extracted disassembly for '
+        '${instructionsMap.length} hot functions (optimized & unoptimized).',
+      );
+
+      // Keep the console output logic for the specific rank requested
+      if (analyzeHotspotRank != null) {
+        if (analyzeHotspotRank! >= 1 &&
+            analyzeHotspotRank! <= report.hotFunctions.length) {
+          final targetFunc = report.hotFunctions[analyzeHotspotRank! - 1];
+          if (targetFunc.wasmInstructions != null) {
+            print(
+              '\nDeep Dive Analysis for #$analyzeHotspotRank: '
+              '${targetFunc.name}\n',
+            );
+            print(targetFunc.wasmInstructions);
+          } else {
+            print(
+              '\nError: Could not find instructions for '
+              '"${targetFunc.name}".',
             );
           }
         } else {
-          // 5. Populate the report model (optimized only)
-          for (final f in report.hotFunctions) {
-            final id = f.wasmFunctionIndex?.toString() ?? f.name;
-            f.wasmInstructions = instructionsMap[id];
-            f.wasmAnalysis = analyzeWasmInstructions(f.wasmInstructions);
-          }
+          print(
+            '\nError: --analyze-hotspot rank $analyzeHotspotRank '
+            'is out of bounds.',
+          );
         }
-
-        print(
-          'Successfully extracted disassembly for '
-          '${instructionsMap.length} hot functions (optimized & unoptimized).',
-        );
-
-        // Keep the console output logic for the specific rank requested
-        if (analyzeHotspotRank != null) {
-          if (analyzeHotspotRank >= 1 &&
-              analyzeHotspotRank <= report.hotFunctions.length) {
-            final targetFunc = report.hotFunctions[analyzeHotspotRank - 1];
-            if (targetFunc.wasmInstructions != null) {
-              print(
-                '\nDeep Dive Analysis for #$analyzeHotspotRank: '
-                '${targetFunc.name}\n',
-              );
-              print(targetFunc.wasmInstructions);
-            } else {
-              print(
-                '\nError: Could not find instructions for '
-                '"${targetFunc.name}".',
-              );
-            }
-          } else {
-            print(
-              '\nError: --analyze-hotspot rank $analyzeHotspotRank '
-              'is out of bounds.',
-            );
-          }
-        }
-      } else {
-        print('Failed to dump WAT: ${dumpResult.stderr}');
       }
+    } else {
+      print('Failed to dump WAT: ${dumpResult.stderr}');
     }
-
-    // Generate HTML report (after populating wasmInstructions).
-    final htmlReporter = HtmlReporter();
-    await htmlReporter.saveReport(report, reportDir.reportHtmlFile.path);
-  } catch (e) {
-    print('Error: $e');
-  } finally {
-    await controller.stop();
-    await server.stop();
-    print('Stopped server and Chrome.');
   }
 }
