@@ -28,6 +28,14 @@ Future<void> main(List<String> arguments) async {
       defaultsTo: 'out',
       help: 'The directory to write trace, profile, and report files to.',
     )
+    ..addOption(
+      'sampling-interval',
+      abbr: 'i',
+      defaultsTo: '1000',
+      help:
+          'The CPU profiling sampling interval in microseconds '
+          '(defaults to 1000Us).',
+    )
     ..addFlag(
       'analyze-only',
       abbr: 'a',
@@ -45,6 +53,9 @@ Future<void> main(List<String> arguments) async {
   final appDir = results['app-dir'] as String;
   final outDir = results['out-dir'] as String;
   final analyzeOnly = results['analyze-only'] as bool? ?? false;
+  final samplingInterval = int.tryParse(
+    results['sampling-interval'] as String? ?? '',
+  );
 
   await runApp(
     target: target,
@@ -52,5 +63,6 @@ Future<void> main(List<String> arguments) async {
     outDir: outDir,
     analyzeOnly: analyzeOnly,
     analyzeHotspotRank: analyzeHotspotRank,
+    samplingIntervalUs: samplingInterval,
   );
 }

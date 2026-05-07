@@ -21,6 +21,7 @@ Future<void> runApp({
   required String outDir,
   required bool analyzeOnly,
   int? analyzeHotspotRank,
+  int? samplingIntervalUs,
 }) async {
   print('Hello from flutter_web_perf tool!');
   print('Target: ${target.name}');
@@ -126,7 +127,7 @@ Future<void> runApp({
       await controller.start(url, enableDebugger: false);
       print('Chrome started and navigated to $url');
 
-      await controller.startProfiling();
+      await controller.startProfiling(intervalUs: samplingIntervalUs);
       await controller.startHeapAllocationProfiling();
       await Future<void>.delayed(const Duration(seconds: 5));
       final profile = await controller.stopProfiling();
@@ -273,7 +274,12 @@ Future<void> runApp({
       if (f.lineNumber != null) {
         try {
           String? localFilePath;
-          if (f.url.startsWith('package:')) {
+          if (f.url.startsWith('org-dartlang-sdk:///lib/')) {
+            localFilePath = f.url.replaceFirst(
+              'org-dartlang-sdk:///lib/',
+              '$localFlutterRepo/engine/src/flutter/lib/web_ui/lib/',
+            );
+          } else if (f.url.startsWith('package:')) {
             localFilePath = resolvePackageUri(f.url, p.absolute(appDir));
           } else if (f.url.startsWith('file://')) {
             try {
@@ -376,7 +382,12 @@ Future<void> runApp({
             String? unoptId;
 
             String? localFilePath;
-            if (f.url.startsWith('package:')) {
+            if (f.url.startsWith('org-dartlang-sdk:///lib/')) {
+              localFilePath = f.url.replaceFirst(
+                'org-dartlang-sdk:///lib/',
+                '$localFlutterRepo/engine/src/flutter/lib/web_ui/lib/',
+              );
+            } else if (f.url.startsWith('package:')) {
               localFilePath = resolvePackageUri(f.url, p.absolute(appDir));
             } else if (f.url.startsWith('file://')) {
               try {

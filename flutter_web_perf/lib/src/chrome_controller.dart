@@ -146,8 +146,14 @@ class ChromeController {
     return completer.future;
   }
 
-  Future<void> startProfiling() async {
+  Future<void> startProfiling({int? intervalUs}) async {
     await _connection?.sendCommand('Profiler.enable');
+    if (intervalUs != null) {
+      await _connection?.sendCommand('Profiler.setSamplingInterval', {
+        'interval': intervalUs,
+      });
+      print('Profiler sampling interval set to $intervalUs microseconds.');
+    }
     await _connection?.sendCommand('Profiler.start');
     print('Profiler started.');
   }
