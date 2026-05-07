@@ -38,23 +38,21 @@ class _AppRunner {
   final bool _analyzeOnly;
   final int? _analyzeHotspotRank;
   final int? _samplingIntervalUs;
+  final String _buildPath;
+  final PerformanceReportDirectory _reportDir;
 
-  late final String _buildPath;
-  late final PerformanceReportDirectory _reportDir;
   final _server = DevServer();
   final _controller = ChromeController();
 
   _AppRunner({
-    required this._target,
-    required String appDir,
     required String outDir,
+    required this._target,
+    required this._appDir,
     required this._analyzeOnly,
     this._analyzeHotspotRank,
     this._samplingIntervalUs,
-  }) : _appDir = appDir {
-    _buildPath = '$appDir/build/web';
-    _reportDir = PerformanceReportDirectory(outDir);
-  }
+  }) : _buildPath = '$_appDir/build/web',
+       _reportDir = PerformanceReportDirectory(outDir);
 
   Future<void> _run() async {
     print('Hello from flutter_web_perf tool!');
