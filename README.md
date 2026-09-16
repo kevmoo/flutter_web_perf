@@ -28,25 +28,20 @@ flutter pub get
 Run the profiler by pointing it to your Flutter web application directory (`-d` / `--app-dir` option):
 
 ```bash
-flutter pub run bin/flutter_web_perf.dart -t wasm -d /path/to/your/flutter_app
+dart bin/flutter_web_perf.dart -t wasm -d /path/to/your/flutter_app
 ```
 
 ### 3. CLI Options & Parameters
 * **`-t, --target`**: The compile target for the web app. Allowed: `js`, `wasm` (Defaults to `wasm`).
 * **`-d, --app-dir`**: The path to the Flutter application directory to profile (Defaults to `../sample_app`).
-* **`--analyze-hotspot`**: Provide the 1-based rank of the hot function to deeply analyze using Wasm disassembly.
+* **`-q, --query`**: Optional URL query string to append when loading the app in Chrome (e.g. `mode=skwasm&stress=heavy`).
+* **`-o, --output-dir`**: Output directory for `trace.json`, `profile.json`, `main.wat`, and `report.html` (Defaults to `out`).
+* **`-a, --analyze-only`**: Skip building and running Chrome; re-analyze existing `trace.json` and `profile.json` in `--output-dir` in ~2 seconds.
+* **`--analyze-hotspot`**: Provide the 1-based rank of the hot function to deeply analyze using side-by-side Wasm disassembly (`main.wat` vs `main.unopt.wat`).
 
 ---
 
 ## 📂 Repository Documentation
 
+* **[Agent & Workflow Guide](AGENTS.md)**: Step-by-step profiling workflow, fast 2-second offline `-a` re-analysis loop, side-by-side WAT disassembly (`--analyze-hotspot`), and symbolication invariants.
 * **[Architecture Guide](docs/architecture.md)**: Component design, CDP controls, strongly-typed models, and developer learnings.
-* **[Wasm & Performance Findings](docs/findings/)**: Optimization case studies, compiler deep-dives, and research findings:
-  * [01. Dart2Wasm Timeline Overhead](docs/findings/01_dart2wasm_timeline_overhead.md)
-  * [02. Dart2Wasm getMasqueradedRuntimeType](docs/findings/02_dart2wasm_getmasqueradedruntimetype.md)
-  * [03. Dart2Wasm RuntimeType Equality](docs/findings/03_dart2wasm_runtimetype_equality.md)
-  * [04. Dart2Wasm math.min/max Boxing](docs/findings/04_dart2wasm_math_min_max_boxing.md)
-  * [05. Dart2Wasm double.clamp Boxing](docs/findings/05_dart2wasm_double_clamp_boxing.md)
-  * [dart2wasm Boxing Issue Deep Dive](docs/findings/dart2wasm_boxing_issue.md)
-  * [Paired Profiling Analysis](docs/findings/paired_profiling_analysis.md)
-  * [Wasm Analysis Ideas](docs/findings/wasm_analysis_ideas.md)
