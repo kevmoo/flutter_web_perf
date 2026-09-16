@@ -124,7 +124,7 @@ class WasmAnalysis {
 }
 
 class HotFunction {
-  final String name;
+  String name;
   final String url;
   final int samples;
   final double percent;

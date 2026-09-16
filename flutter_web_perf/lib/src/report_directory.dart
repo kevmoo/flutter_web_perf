@@ -1,4 +1,5 @@
 import 'dart:io';
+
 import 'package:path/path.dart' as p;
 
 /// Manages the output directory for `flutter_web_perf` profiling artifacts.

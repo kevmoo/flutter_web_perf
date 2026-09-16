@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+
 import 'package:http/http.dart' as http;
 import 'package:path/path.dart' as p;
 import 'package:webkit_inspection_protocol/webkit_inspection_protocol.dart';
@@ -11,22 +12,61 @@ class ChromeController {
   Directory? _tempDir;
 
   Future<void> start(String url, {bool enableDebugger = true}) async {
-    // TODO: Find Chrome executable path portably
-    final chromePath =
-        '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome'; // Hardcoded for Mac for now
+    final chromePath = Platform.isLinux
+        ? '/usr/bin/google-chrome'
+        : '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
 
     _tempDir = await Directory.systemTemp.createTemp('chrome_profile_');
+    await _launchChromeProcess(chromePath, _tempDir!.path);
 
+    final port = await _waitForDevToolsPort(_tempDir!.path);
+    print('Chrome listening on dynamic port: $port');
+
+    final wsUrl = await _findPageDebuggerUrl(port);
+    _connection = await WipConnection.connect(wsUrl);
+    print('Connected to Chrome via $wsUrl!');
+
+    if (enableDebugger) {
+      await _enableDebuggerLogging();
+    }
+
+    await _enableConsoleLogging();
+    await _sendCommandWithTimeout('Page.enable');
+    print('Sending Page.navigate to $url...');
+    await _connection?.sendCommand('Page.navigate', {'url': url});
+    print('Navigated to $url');
+  }
+
+  Future<void> _launchChromeProcess(
+    String chromePath,
+    String userDataDir,
+  ) async {
     _chromeProcess = await Process.start(chromePath, [
-      '--remote-debugging-port=0', // Use dynamic port
-      '--headless', // Remove if we want to see it
-      '--user-data-dir=${_tempDir!.path}',
-      'about:blank', // Start with blank page
+      '--remote-debugging-port=0',
+      '--remote-allow-origins=*',
+      '--headless=new',
+      '--no-sandbox',
+      '--disable-dev-shm-usage',
+      '--disable-extensions',
+      '--disable-background-networking',
+      '--disable-sync',
+      '--no-first-run',
+      '--no-proxy-server',
+      '--password-store=basic',
+      '--use-mock-keychain',
+      '--user-data-dir=$userDataDir',
+      'about:blank',
     ]);
+    _chromeProcess?.stdout
+        .transform(utf8.decoder)
+        .listen((data) => print('Chrome STDOUT: $data'));
+    _chromeProcess?.stderr
+        .transform(utf8.decoder)
+        .listen((data) => print('Chrome STDERR: $data'));
+  }
 
-    final activePortFile = File(p.join(_tempDir!.path, 'DevToolsActivePort'));
-
-    // Wait for file to exist
+  Future<int> _waitForDevToolsPort(String userDataDir) async {
+    final activePortFile = File(p.join(userDataDir, 'DevToolsActivePort'));
     var attempts = 0;
     while (!await activePortFile.exists() && attempts < 150) {
       await Future<void>.delayed(const Duration(milliseconds: 100));
@@ -41,15 +81,14 @@ class ChromeController {
     if (lines.isEmpty) {
       throw Exception('DevToolsActivePort file is empty.');
     }
+    return int.parse(lines[0]);
+  }
 
-    final port = int.parse(lines[0]);
-    print('Chrome listening on dynamic port: $port');
-
-    // Wait for Chrome to be ready on the new port with retries
+  Future<String> _findPageDebuggerUrl(int port) async {
     http.Response? response;
     for (var i = 0; i < 10; i++) {
       try {
-        response = await http.get(Uri.parse('http://localhost:$port/json'));
+        response = await http.get(Uri.parse('http://127.0.0.1:$port/json'));
         if (response.statusCode == 200) break;
       } catch (_) {
         // Ignore and retry
@@ -64,54 +103,64 @@ class ChromeController {
     final tabs = (json.decode(response.body) as List)
         .cast<Map<String, dynamic>>();
     final targetTab = tabs.firstWhere((tab) => tab['type'] == 'page');
-    final wsUrl = targetTab['webSocketDebuggerUrl'] as String;
-
-    _connection = await WipConnection.connect(wsUrl);
-    print('Connected to Chrome!');
-
-    // Enable Debugger domain to see script events
-    if (enableDebugger) {
-      await _connection?.sendCommand('Debugger.enable');
-
-      _connection?.onNotification.listen((notification) {
-        if (notification.method == 'Debugger.scriptParsed') {
-          final params = notification.params as Map<String, dynamic>;
-          final url = params['url'] as String;
-          final sourceMapURL = params['sourceMapURL'] as String?;
-          if (url.contains('main.dart.js')) {
-            print('Found main.dart.js! SourceMap URL: $sourceMapURL');
-          }
-        }
-      });
-    }
-
-    // Enable Runtime domain to see console logs
-    await _connection?.sendCommand('Runtime.enable');
-    _connection?.onNotification.listen((notification) {
-      if (notification.method == 'Runtime.consoleAPICalled') {
-        final params = notification.params as Map<String, dynamic>;
-        final type = params['type'] as String;
-        final args = params['args'] as List;
-        var message = '';
-        if (args.isNotEmpty) {
-          final firstArg = args[0];
-          if (firstArg is Map<String, dynamic>) {
-            message = firstArg['value'] as String? ?? '';
-          }
-        }
-        if (message.isNotEmpty) {
-          print('Chrome Console [$type]: $message');
-        }
-      }
-    });
-
-    // Enable Page domain
-    await _connection?.sendCommand('Page.enable');
-
-    // Navigate to the target URL after setting up listeners
-    await _connection?.sendCommand('Page.navigate', {'url': url});
-    print('Navigated to $url');
+    return targetTab['webSocketDebuggerUrl'] as String;
   }
+
+  Future<void> _sendCommandWithTimeout(
+    String method, [
+    Map<String, dynamic>? params,
+  ]) async {
+    print('Sending $method...');
+    await _connection
+        ?.sendCommand(method, params)
+        .timeout(
+          const Duration(seconds: 5),
+          onTimeout: () {
+            print('$method timed out!');
+            throw Exception('Timeout waiting for $method');
+          },
+        );
+    print('$method completed.');
+  }
+
+  Future<void> _enableDomainAndListen(
+    String enableCommand,
+    String eventMethod,
+    void Function(Map<String, dynamic> params) handler,
+  ) async {
+    await _sendCommandWithTimeout(enableCommand);
+    _connection?.onNotification.listen((notification) {
+      if (notification.method != eventMethod) return;
+      handler(notification.params as Map<String, dynamic>);
+    });
+  }
+
+  Future<void> _enableDebuggerLogging() => _enableDomainAndListen(
+    'Debugger.enable',
+    'Debugger.scriptParsed',
+    (params) {
+      final url = params['url'] as String;
+      if (url.contains('main.dart.js')) {
+        print('Found main.dart.js! SourceMap URL: ${params['sourceMapURL']}');
+      }
+    },
+  );
+
+  Future<void> _enableConsoleLogging() => _enableDomainAndListen(
+    'Runtime.enable',
+    'Runtime.consoleAPICalled',
+    (params) {
+      final type = params['type'] as String;
+      final args = params['args'] as List;
+      final firstArg = args.isNotEmpty ? args.first : null;
+      final message = firstArg is Map<String, dynamic>
+          ? (firstArg['value'] as String? ?? '')
+          : '';
+      if (message.isNotEmpty) {
+        print('Chrome Console [$type]: $message');
+      }
+    },
+  );
 
   Future<void> startTracing() async {
     await _connection?.sendCommand('Tracing.start', {
@@ -134,7 +183,6 @@ class ChromeController {
     await _connection?.sendCommand('Tracing.end');
     print('Tracing stopped, waiting for data...');
 
-    // Wait for tracingComplete event
     final completer = Completer<List<Map<String, dynamic>>>();
     _connection?.onNotification.listen((notification) {
       if (notification.method == 'Tracing.tracingComplete') {
@@ -185,7 +233,6 @@ class ChromeController {
     _connection = null;
 
     _chromeProcess?.kill();
-    // Wait for process to exit to release file locks
     await _chromeProcess?.exitCode;
     _chromeProcess = null;
 

@@ -21,9 +21,6 @@ Future<void> main(List<String> args) async {
   // Run wasm-tools print to get the textual representation
   final process = await Process.start('wasm-tools', ['print', wasmPath]);
 
-  var inTargetFunction = false;
-  var openParentheses = 0;
-
   // Match either the index (;123;) or the exact name $name or
   // $"name with spaces"
   final escapedTarget = RegExp.escape(targetIdentifier);
@@ -37,34 +34,11 @@ Future<void> main(List<String> args) async {
         r';\))',
   );
 
-  // Process the output stream line by line
-  final linesStream = process.stdout
+  final extractor = _StreamFunctionExtractor(process, funcSignatureRegex);
+  process.stdout
       .transform(utf8.decoder)
-      .transform(const LineSplitter());
-
-  linesStream.listen((line) {
-    String formatLine(String l) => l.startsWith('  ') ? l.substring(2) : l;
-
-    if (!inTargetFunction) {
-      // Look for the start of the target function
-      if (funcSignatureRegex.hasMatch(line)) {
-        inTargetFunction = true;
-        // Count initial parentheses
-        openParentheses += _countChar(line, '(') - _countChar(line, ')');
-        print(formatLine(line));
-      }
-    } else {
-      print(formatLine(line));
-      openParentheses += _countChar(line, '(') - _countChar(line, ')');
-
-      // If we've closed all parentheses opened by the function, we're done
-      if (openParentheses <= 0) {
-        inTargetFunction = false;
-        // Found our function, stop parsing.
-        process.kill();
-      }
-    }
-  });
+      .transform(const LineSplitter())
+      .listen(extractor.processLine);
 
   final exitCode = await process.exitCode;
   // -15 is SIGTERM (when we kill it early)
@@ -75,6 +49,32 @@ Future<void> main(List<String> args) async {
       print('Error output: $stderr');
     }
   }
+}
+
+class _StreamFunctionExtractor {
+  final Process _process;
+  final RegExp _signatureRegex;
+  bool _inTargetFunction = false;
+  int _openParentheses = 0;
+
+  _StreamFunctionExtractor(this._process, this._signatureRegex);
+
+  void processLine(String line) {
+    if (!_inTargetFunction) {
+      if (!_signatureRegex.hasMatch(line)) return;
+      _inTargetFunction = true;
+    }
+
+    print(_formatLine(line));
+    _openParentheses += _countChar(line, '(') - _countChar(line, ')');
+    if (_openParentheses <= 0) {
+      _inTargetFunction = false;
+      _process.kill();
+    }
+  }
+
+  static String _formatLine(String l) =>
+      l.startsWith('  ') ? l.substring(2) : l;
 }
 
 int _countChar(String text, String char) {

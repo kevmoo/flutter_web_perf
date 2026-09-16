@@ -22,92 +22,151 @@ Map<String, String> parseWasmFunctions(
   List<String> identifiers,
 ) {
   final results = <String, String>{};
+  final regexMap = _buildIdentifierRegexMap(identifiers);
 
-  // Pre-compile regexes for each identifier
-  final regexMap = <String, RegExp>{};
-  for (final id in identifiers) {
-    final escapedTarget = RegExp.escape(id);
-    // Wasm names start with a literal $ (e.g. $runBinary).
-    // We escape the $ so it's not treated as an end-of-string anchor.
-    final namePattern = r'\$.*' + escapedTarget + r'(?:\s|\(|"|$)';
-    final indexPattern = r'\(func[^\)]*\(;' + escapedTarget + r';\)';
-    regexMap[id] = RegExp('($namePattern|$indexPattern)');
-  }
-
-  // Single pass over the file to extract everything
   for (var i = 0; i < lines.length; i++) {
     final line = lines[i];
-    if (line.contains('(func ')) {
-      for (final entry in regexMap.entries) {
-        if (entry.value.hasMatch(line)) {
-          final id = entry.key;
-          if (results.containsKey(id)) continue;
+    if (!line.contains('(func ')) continue;
 
-          final buffer = StringBuffer();
-          var openParentheses = 0;
-          var inString = false;
-          var blockCommentDepth = 0;
+    final matchedId = _findMatchingIdentifier(line, regexMap, results);
+    if (matchedId == null) continue;
 
-          void processLine(String l) {
-            buffer.writeln(_formatLine(l));
-            for (var c = 0; c < l.length; c++) {
-              final char = l[c];
-
-              if (inString) {
-                if (char == '"') {
-                  var backslashes = 0;
-                  for (var k = c - 1; k >= 0 && l[k] == '\\'; k--) {
-                    backslashes++;
-                  }
-                  if (backslashes.isEven) {
-                    inString = false;
-                  }
-                }
-              } else if (blockCommentDepth > 0) {
-                if (char == '(' && c + 1 < l.length && l[c + 1] == ';') {
-                  blockCommentDepth++;
-                  c++;
-                } else if (char == ';' && c + 1 < l.length && l[c + 1] == ')') {
-                  blockCommentDepth--;
-                  c++; // skip ')'
-                }
-              } else {
-                if (char == '"') {
-                  inString = true;
-                } else if (char == '(' && c + 1 < l.length && l[c + 1] == ';') {
-                  blockCommentDepth++;
-                  c++; // skip ';'
-                } else if (char == '(') {
-                  openParentheses++;
-                } else if (char == ')') {
-                  openParentheses--;
-                } else if (char == ';' && c + 1 < l.length && l[c + 1] == ';') {
-                  // line comment, stop processing this line
-                  break;
-                }
-              }
-            }
-          }
-
-          processLine(line);
-
-          var j = i + 1;
-          while (openParentheses > 0 && j < lines.length) {
-            processLine(lines[j]);
-            j++;
-          }
-
-          results[id] = buffer.toString().trim();
-          break; // Found a match for this line
-        }
-      }
-    }
+    results[matchedId] = _extractSingleFunction(lines, i);
   }
 
   return results;
 }
 
+Map<String, RegExp> _buildIdentifierRegexMap(List<String> identifiers) {
+  final regexMap = <String, RegExp>{};
+  for (final id in identifiers) {
+    final escapedTarget = RegExp.escape(id);
+    final namePattern = r'\$.*' + escapedTarget + r'(?:\s|\(|"|$)';
+    final indexPattern = r'\(func[^\)]*\(;' + escapedTarget + r';\)';
+    regexMap[id] = RegExp('($namePattern|$indexPattern)');
+  }
+  return regexMap;
+}
+
+String? _findMatchingIdentifier(
+  String line,
+  Map<String, RegExp> regexMap,
+  Map<String, String> existingResults,
+) {
+  for (final entry in regexMap.entries) {
+    if (!existingResults.containsKey(entry.key) && entry.value.hasMatch(line)) {
+      return entry.key;
+    }
+  }
+  return null;
+}
+
+String _extractSingleFunction(List<String> lines, int startIndex) {
+  final scanner = _WatBlockScanner();
+  scanner.processLine(lines[startIndex]);
+
+  var j = startIndex + 1;
+  while (scanner.openParentheses > 0 && j < lines.length) {
+    scanner.processLine(lines[j]);
+    j++;
+  }
+  return scanner.buffer.toString().trim();
+}
+
+class _WatBlockScanner {
+  final StringBuffer buffer = StringBuffer();
+  int openParentheses = 0;
+  bool _inString = false;
+  int _blockCommentDepth = 0;
+
+  void processLine(String line) {
+    buffer.writeln(_formatLine(line));
+    for (var c = 0; c < line.length; c++) {
+      final step = _consumeToken(line, c);
+      if (step < 0) break;
+      c += step;
+    }
+  }
+
+  /// Processes character at [index] in [line].
+  /// Returns extra characters consumed (`0` or `1`), or `-1` for line comment.
+  int _consumeToken(String line, int index) {
+    final char = line[index];
+    final nextChar = index + 1 < line.length ? line[index + 1] : '';
+
+    if (_inString) {
+      if (char == '"' && _isUnescapedQuote(line, index)) {
+        _inString = false;
+      }
+      return 0;
+    }
+
+    if (_blockCommentDepth > 0) {
+      return _consumeInsideBlockComment(char, nextChar);
+    }
+
+    return _consumeCodeToken(char, nextChar);
+  }
+
+  int _consumeInsideBlockComment(String char, String nextChar) {
+    if (char == '(' && nextChar == ';') {
+      _blockCommentDepth++;
+      return 1;
+    }
+    if (char == ';' && nextChar == ')') {
+      _blockCommentDepth--;
+      return 1;
+    }
+    return 0;
+  }
+
+  int _consumeCodeToken(String char, String nextChar) {
+    if (char == '"') {
+      _inString = true;
+      return 0;
+    }
+    if (char == '(' && nextChar == ';') {
+      _blockCommentDepth++;
+      return 1;
+    }
+    if (char == ';' && nextChar == ';') {
+      return -1;
+    }
+    if (char == '(') {
+      openParentheses++;
+    } else if (char == ')') {
+      openParentheses--;
+    }
+    return 0;
+  }
+
+  bool _isUnescapedQuote(String line, int quoteIndex) {
+    var backslashes = 0;
+    for (var k = quoteIndex - 1; k >= 0 && line[k] == '\\'; k--) {
+      backslashes++;
+    }
+    return backslashes.isEven;
+  }
+}
+
 String _formatLine(String l) => l.startsWith('  ') ? l.substring(2) : l;
+
+const _declKeywords = {
+  'func',
+  'local',
+  'param',
+  'result',
+  'type',
+  'import',
+  'export',
+  'table',
+  'memory',
+  'elem',
+  'data',
+  'global',
+};
+
+final _opcodeRegex = RegExp(r'^[a-z0-9_]+(?:\.[a-z0-9_]+)*');
 
 /// Analyzes raw Wasm Text (WAT) instructions of a function.
 ///
@@ -121,50 +180,17 @@ WasmAnalysis? analyzeWasmInstructions(String? instructions) {
   var typeCheckCount = 0;
   final instructionCounts = <String, int>{};
 
-  final lines = instructions.split('\n');
-  final opcodeRegex = RegExp(r'^[a-z0-9_]+(?:\.[a-z0-9_]+)*');
+  for (final rawLine in instructions.split('\n')) {
+    final opcode = _extractExecutableOpcode(rawLine);
+    if (opcode == null) continue;
 
-  const declKeywords = {
-    'func',
-    'local',
-    'param',
-    'result',
-    'type',
-    'import',
-    'export',
-    'table',
-    'memory',
-    'elem',
-    'data',
-    'global',
-  };
+    totalInstructions++;
+    instructionCounts[opcode] = (instructionCounts[opcode] ?? 0) + 1;
 
-  for (final rawLine in lines) {
-    var line = rawLine.trim();
-    // Strip leading parenthetical wrappers
-    while (line.startsWith('(')) {
-      line = line.substring(1).trim();
-    }
-
-    if (line.isEmpty || line.startsWith(';;') || line.startsWith('(;')) {
-      continue;
-    }
-
-    final match = opcodeRegex.firstMatch(line);
-    if (match != null) {
-      final opcode = match.group(0)!;
-      if (declKeywords.contains(opcode)) {
-        continue;
-      }
-
-      totalInstructions++;
-      instructionCounts[opcode] = (instructionCounts[opcode] ?? 0) + 1;
-
-      if (wasmAllocationOpcodes.contains(opcode)) {
-        allocationCount++;
-      } else if (wasmTypeCheckOpcodes.contains(opcode)) {
-        typeCheckCount++;
-      }
+    if (wasmAllocationOpcodes.contains(opcode)) {
+      allocationCount++;
+    } else if (wasmTypeCheckOpcodes.contains(opcode)) {
+      typeCheckCount++;
     }
   }
 
@@ -174,4 +200,19 @@ WasmAnalysis? analyzeWasmInstructions(String? instructions) {
     typeCheckCount: typeCheckCount,
     instructionCounts: instructionCounts,
   );
+}
+
+String? _extractExecutableOpcode(String rawLine) {
+  var line = rawLine.trim();
+  while (line.startsWith('(')) {
+    line = line.substring(1).trim();
+  }
+  if (line.isEmpty || line.startsWith(';;') || line.startsWith('(;')) {
+    return null;
+  }
+  final opcode = _opcodeRegex.firstMatch(line)?.group(0);
+  if (opcode == null || _declKeywords.contains(opcode)) {
+    return null;
+  }
+  return opcode;
 }
