@@ -12,8 +12,8 @@ All commands below run from the `flutter_web_perf/` package directory
 
 ### Step 1: Capture a Baseline Profile (`~45–90s`)
 
-Point `-d` (`--app-dir`) at any Flutter web application directory, specify `-t
-wasm` (default) or `-t js`, pass optional URL query parameters via `-q`
+Point `-d` (`--app-dir`) at any Flutter web application directory, specify
+`-t wasm` (default) or `-t js`, pass optional URL query parameters via `-q`
 (`--query`), and write artifacts to a dedicated `-o` (`--output-dir`) folder:
 
 ```bash
@@ -26,10 +26,11 @@ dart bin/flutter_web_perf.dart \
 
 What this step executes automatically:
 
-1. **Build**: Runs `flutter build web --wasm --profile --no-strip-wasm
-   --source-maps` (or `flutter build web --profile -O2 --no-minify
-   --source-maps` for `js`) in the target `--app-dir`, plus an unoptimized build
-   (`-O0`) cached as `main.unopt.wasm` for side-by-side WAT comparison.
+1. **Build**: Runs
+   `flutter build web --wasm --profile --no-strip-wasm --source-maps` (or
+   `flutter build web --profile -O2 --no-minify --source-maps` for `js`) in the
+   target `--app-dir`, plus an unoptimized build (`-O0`) cached as
+   `main.unopt.wasm` for side-by-side WAT comparison.
 2. **Serve with COOP/COEP**: Starts a local Shelf HTTP server with
    `Cross-Origin-Opener-Policy: same-origin` and
    `Cross-Origin-Embedder-Policy: require-corp` headers so `SharedArrayBuffer`
@@ -44,8 +45,8 @@ What this step executes automatically:
 
 ### Step 2: Fast Offline Re-Analysis & Deep-Dive Loop (`~2s`)
 
-Once `trace.json` and `profile.json` are captured in `out/run_1`, **never
-re-run the full build/Chrome capture just to inspect a different hotspot or test
+Once `trace.json` and `profile.json` are captured in `out/run_1`, **never re-run
+the full build/Chrome capture just to inspect a different hotspot or test
 changes to `flutter_web_perf`'s analyzer/reporter**.
 
 Pass `-a` (`--analyze-only`) with `--analyze-hotspot <1-10>` to re-run
@@ -63,20 +64,19 @@ dart bin/flutter_web_perf.dart \
 
 When `--analyze-hotspot <rank>` is passed on a `wasm` target:
 
-- `flutter_web_perf` invokes `wasm2wat` (resolved from PATH or via `mise where
-  wabt`) to disassemble `main.dart.wasm` -> `out/run_1/main.wat` and
+- `flutter_web_perf` invokes `wasm2wat` (resolved from PATH or via
+  `mise where wabt`) to disassemble `main.dart.wasm` -> `out/run_1/main.wat` and
   `main.unopt.wasm` -> `out/run_1/main.unopt.wat`.
-- It extracts the exact `(func ...)` body for the ranked hotspot from both
-  files and embeds a side-by-side **Optimized (`-O2` / Binaryen) vs.
-  Unoptimized (`-O0`)** WAT viewer into `out/run_1/report.html` (with a
-  one-click "Copy Markdown to Clipboard" button for sharing with an agent or
-  issue).
+- It extracts the exact `(func ...)` body for the ranked hotspot from both files
+  and embeds a side-by-side **Optimized (`-O2` / Binaryen) vs. Unoptimized
+  (`-O0`)** WAT viewer into `out/run_1/report.html` (with a one-click "Copy
+  Markdown to Clipboard" button for sharing with an agent or issue).
 
 ### Step 3: Viewing `report.html`
 
 - **Locally**: Open `out/run_1/report.html` directly in Chrome.
-- **On Cloudtop / Remote Workstations**: Serve the output directory over HTTP
-  so you can open `http://<hostname>:<port>/report.html`:
+- **On Cloudtop / Remote Workstations**: Serve the output directory over HTTP so
+  you can open `http://<hostname>:<port>/report.html`:
   ```bash
   python3 -m http.server 8899 --directory out/run_1
   ```
@@ -94,13 +94,13 @@ mind:
      method name in the Wasm binary's `name` section, which V8 records in
      `callFrame.functionName`.
    - However, `main.dart.wasm.map` maps each instruction's byte offset to the
-     *deepest inlined callee* at that instruction. Overwriting
+     _deepest inlined callee_ at that instruction. Overwriting
      `callFrame.functionName` with `span.text` from the source map would
      misattribute parent methods to inlined leaf helpers (e.g. `List.[]` or
      `LinkedHashSet`).
    - Therefore, `_symbolicateCallFrame` preserves any non-empty Wasm
-     `functionName` (`hasWasmSymbol`) and only uses the source map to attach
-     the Dart source file URL and line number.
+     `functionName` (`hasWasmSymbol`) and only uses the source map to attach the
+     Dart source file URL and line number.
 2. **Grouping Cross-File Inlined Spans into Single Hotspot Buckets**
    ([trace_analyzer.dart](flutter_web_perf/lib/src/trace_analyzer.dart)):
    - A single Wasm function often contains instructions inlined from multiple
@@ -128,7 +128,7 @@ mind:
 
 ```bash
 # Fast unit tests (~2s, 31 tests across symbolication, trace tree, WAT parser, and reporter)
-dart test test/profile_symbolicator_test.dart test/trace_analyzer_tree_test.dart test/wasm_parser_test.dart test/extract_wasm_func_test.dart test/profile_model_test.dart test/html_reporter_test.dart test/utils_test.dart
+dart test --exclude-tags e2e
 
 # Full test suite including E2E Wasm + JS builds on ../sample_app (~90s)
 dart test
