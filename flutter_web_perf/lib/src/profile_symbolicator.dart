@@ -1,34 +1,37 @@
 import 'dart:convert';
 import 'dart:io';
+
 import 'package:source_maps/source_maps.dart';
+
 import 'exceptions.dart';
 import 'profile_model.dart';
 
 String normalizeLocation(String url) {
-  if (url.contains('flutter-canvaskit/')) {
-    final index = url.indexOf('flutter-canvaskit/');
-    final rest = url.substring(index + 'flutter-canvaskit/'.length);
-    final parts = rest.split('/');
-    if (parts.length > 1) {
-      return parts.sublist(1).join('/');
-    }
+  final canvasKitSuffix = _extractAfterMarker(url, 'flutter-canvaskit/');
+  if (canvasKitSuffix != null && canvasKitSuffix.length > 1) {
+    return canvasKitSuffix.sublist(1).join('/');
   }
 
   if (url.startsWith('org-dartlang-sdk:///dart-sdk/lib/')) {
     return url.replaceFirst('org-dartlang-sdk:///dart-sdk/lib/', 'dart:');
   }
 
-  if (url.contains('flutter/packages/')) {
-    final index = url.indexOf('flutter/packages/');
-    final rest = url.substring(index + 'flutter/packages/'.length);
-    final parts = rest.split('/');
-    if (parts.length > 1 && parts[1] == 'lib') {
-      parts.removeAt(1);
+  final flutterPkgParts = _extractAfterMarker(url, 'flutter/packages/');
+  if (flutterPkgParts != null) {
+    if (flutterPkgParts.length > 1 && flutterPkgParts[1] == 'lib') {
+      flutterPkgParts.removeAt(1);
     }
-    return 'package:${parts.join('/')}';
+    return 'package:${flutterPkgParts.join('/')}';
   }
 
   return url;
+}
+
+List<String>? _extractAfterMarker(String url, String marker) {
+  final index = url.indexOf(marker);
+  if (index < 0) return null;
+  final rest = url.substring(index + marker.length);
+  return rest.split('/');
 }
 
 Future<Map<String, dynamic>> symbolicateProfile({
@@ -52,48 +55,57 @@ Future<Map<String, dynamic>> symbolicateProfile({
 
   final mapContent = await mapFile.readAsString();
   final mapping = parse(mapContent) as SingleMapping;
+  final isWasmMap = sourceMapPath.endsWith('.wasm.map');
 
   for (final node in profile.nodes) {
-    final frame = node.callFrame;
-    final line = frame.lineNumber;
-    final column = frame.columnNumber;
-
-    final isWasmMap = sourceMapPath.contains('wasm');
-    final shouldSymbolicate = isWasmMap
-        ? frame.url.contains('main.dart.wasm')
-        : frame.url.contains('main.dart.js');
-
-    if (line != null && column != null) {
-      if (shouldSymbolicate) {
-        var span = mapping.spanFor(line, column);
-
-        // Wasm source maps often don't have an entry for the function prologue.
-        // If spanFor returns null (meaning we are before the first entry),
-        // or if it returns a span but we want to be robust, we can scan
-        // forwards. Actually, spanFor returns the *preceding* mapping. If we
-        // are in a prologue, it might return the previous function's mapping.
-        // But for now, let's fix the case where spanFor is null by scanning
-        // forwards.
-        if (span == null) {
-          for (var offset = column; offset < column + 100; offset++) {
-            span = mapping.spanFor(line, offset);
-            if (span != null) break;
-          }
-        }
-
-        if (span != null) {
-          if (span.text.isNotEmpty) {
-            frame.functionName = span.text;
-          }
-          frame.url = normalizeLocation(span.sourceUrl.toString());
-          frame.lineNumber = span.start.line + 1;
-          frame.columnNumber = span.start.column + 1;
-        }
-      } else {
-        frame.url = normalizeLocation(frame.url);
-      }
-    }
+    _symbolicateCallFrame(node.callFrame, mapping, isWasmMap: isWasmMap);
   }
 
   return profile.toJson();
+}
+
+void _symbolicateCallFrame(
+  CallFrame frame,
+  SingleMapping mapping, {
+  required bool isWasmMap,
+}) {
+  final line = frame.lineNumber;
+  final column = frame.columnNumber;
+  if (line == null || column == null) return;
+
+  final targetArtifact = isWasmMap ? 'main.dart.wasm' : 'main.dart.js';
+  if (!frame.url.contains(targetArtifact)) {
+    frame.url = normalizeLocation(frame.url);
+    return;
+  }
+
+  final span = _findSpanWithPrologueFallback(mapping, line, column);
+  if (span == null) return;
+
+  final hasWasmSymbol =
+      isWasmMap &&
+      frame.functionName.isNotEmpty &&
+      !frame.functionName.startsWith('wasm-function[');
+  if (!hasWasmSymbol && span.text.isNotEmpty) {
+    frame.functionName = span.text;
+  }
+  frame.url = normalizeLocation(span.sourceUrl.toString());
+  frame.lineNumber = span.start.line + 1;
+  frame.columnNumber = span.start.column + 1;
+}
+
+SourceMapSpan? _findSpanWithPrologueFallback(
+  SingleMapping mapping,
+  int line,
+  int column,
+) {
+  final direct = mapping.spanFor(line, column);
+  if (direct != null) return direct;
+
+  // Wasm source maps often lack an entry for the function prologue; scan ahead.
+  for (var offset = column; offset < column + 100; offset++) {
+    final candidate = mapping.spanFor(line, offset);
+    if (candidate != null) return candidate;
+  }
+  return null;
 }

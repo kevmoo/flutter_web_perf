@@ -36,12 +36,25 @@ Future<void> main(List<String> arguments) async {
           'The CPU profiling sampling interval in microseconds '
           '(defaults to 1000Us).',
     )
+    ..addOption(
+      'query',
+      abbr: 'q',
+      help:
+          'Optional URL query string to append when navigating '
+          '(e.g. "mode=skwasm&stress=heavy").',
+    )
+    ..addOption(
+      'duration',
+      defaultsTo: '5',
+      help: 'Capture duration in seconds for trace and profile phases.',
+    )
     ..addFlag(
       'analyze-only',
       abbr: 'a',
       negatable: false,
       help:
-          'Skip building and profiling; analyze existing trace/profile files in out/ directly.',
+          'Skip building and profiling; analyze existing trace/profile files '
+          'in out/ directly.',
     );
 
   final results = parser.parse(arguments);
@@ -56,6 +69,9 @@ Future<void> main(List<String> arguments) async {
   final samplingInterval = int.tryParse(
     results['sampling-interval'] as String? ?? '',
   );
+  final queryParameters = results['query'] as String?;
+  final durationSeconds =
+      int.tryParse(results['duration'] as String? ?? '') ?? 5;
 
   await runApp(
     target: target,
@@ -64,5 +80,7 @@ Future<void> main(List<String> arguments) async {
     analyzeOnly: analyzeOnly,
     analyzeHotspotRank: analyzeHotspotRank,
     samplingIntervalUs: samplingInterval,
+    queryParameters: queryParameters,
+    durationSeconds: durationSeconds,
   );
 }

@@ -1,6 +1,21 @@
 import 'dart:convert';
 import 'dart:io';
+
 import 'package:path/path.dart' as p;
+
+final _anyClassRegExp = RegExp(
+  r'^\s*(?:abstract\s+|base\s+|interface\s+|final\s+|sealed\s+)?class\s+(\w+)',
+);
+final _anyMixinRegExp = RegExp(r'^\s*mixin\s+(\w+)');
+final _anyExtensionRegExp = RegExp(
+  r'^\s*extension\s+(?:type\s+)?(?:on\s+)?(\w+)',
+);
+
+String? _matchTypeDeclarationName(String line) {
+  return _anyClassRegExp.firstMatch(line)?.group(1) ??
+      _anyMixinRegExp.firstMatch(line)?.group(1) ??
+      _anyExtensionRegExp.firstMatch(line)?.group(1);
+}
 
 /// Scans a Dart source file backwards from [lineNumber] to find the enclosing
 /// class, mixin, or extension name.
@@ -10,25 +25,12 @@ String? findEnclosingClass(String filePath, int lineNumber) {
     if (!file.existsSync()) return null;
 
     final lines = file.readAsLinesSync();
+    if (lines.isEmpty) return null;
     final startIdx = (lineNumber - 1).clamp(0, lines.length - 1);
 
-    final classRegExp = RegExp(
-      r'^\s*(?:abstract\s+|base\s+|interface\s+|final\s+|sealed\s+)?class\s+(\w+)',
-    );
-    final mixinRegExp = RegExp(r'^\s*mixin\s+(\w+)');
-    final extensionRegExp = RegExp(r'^\s*extension\s+(?:on\s+)?(\w+)');
-
     for (var i = startIdx; i >= 0; i--) {
-      final line = lines[i];
-
-      var match = classRegExp.firstMatch(line);
-      if (match != null) return match.group(1);
-
-      match = mixinRegExp.firstMatch(line);
-      if (match != null) return match.group(1);
-
-      match = extensionRegExp.firstMatch(line);
-      if (match != null) return match.group(1);
+      final matched = _matchTypeDeclarationName(lines[i]);
+      if (matched != null) return matched;
     }
   } catch (_) {}
   return null;
@@ -37,55 +39,12 @@ String? findEnclosingClass(String filePath, int lineNumber) {
 Map<String, String>? _packageMap;
 
 /// Resolves a `package:` URI to its absolute local file path using
-/// the `.dart_tool/package_config.json` found by searching upwards from [projectRoot].
+/// the `.dart_tool/package_config.json` found by searching upwards from
+/// [projectRoot].
 String? resolvePackageUri(String packageUrl, String projectRoot) {
   if (!packageUrl.startsWith('package:')) return null;
 
-  if (_packageMap == null) {
-    _packageMap = <String, String>{};
-    try {
-      var currentDir = Directory(projectRoot);
-      File? configFile;
-      while (true) {
-        final candidate = File(
-          p.join(currentDir.path, '.dart_tool', 'package_config.json'),
-        );
-        if (candidate.existsSync()) {
-          configFile = candidate;
-          break;
-        }
-        final parent = currentDir.parent;
-        if (parent.path == currentDir.path) break;
-        currentDir = parent;
-      }
-
-      if (configFile != null) {
-        final config =
-            json.decode(configFile.readAsStringSync()) as Map<String, dynamic>;
-        final packages = config['packages'] as List;
-        for (final pkg in packages.cast<Map<String, dynamic>>()) {
-          final name = pkg['name'] as String;
-          var rootUriStr = pkg['rootUri'] as String;
-          final packageUriStr = pkg['packageUri'] as String? ?? 'lib/';
-
-          // If it's relative, resolve it relative to the config directory
-          if (!rootUriStr.startsWith('file://')) {
-            final absoluteRoot = p.normalize(
-              p.join(currentDir.path, rootUriStr),
-            );
-            rootUriStr = Uri.directory(absoluteRoot).toString();
-          }
-
-          if (!rootUriStr.endsWith('/')) {
-            rootUriStr += '/';
-          }
-
-          final packageRoot = Uri.parse(rootUriStr).resolve(packageUriStr);
-          _packageMap![name] = packageRoot.toFilePath();
-        }
-      }
-    } catch (_) {}
-  }
+  _packageMap ??= _loadPackageMap(projectRoot);
 
   try {
     final uri = Uri.parse(packageUrl);
@@ -97,6 +56,51 @@ String? resolvePackageUri(String packageUrl, String projectRoot) {
     }
   } catch (_) {}
   return null;
+}
+
+Map<String, String> _loadPackageMap(String projectRoot) {
+  final map = <String, String>{};
+  try {
+    final configFile = _findPackageConfigFile(Directory(projectRoot));
+    if (configFile == null) return map;
+
+    final configDir = configFile.parent.parent;
+    final config =
+        json.decode(configFile.readAsStringSync()) as Map<String, dynamic>;
+    final packages = (config['packages'] as List).cast<Map<String, dynamic>>();
+    for (final pkg in packages) {
+      final name = pkg['name'] as String;
+      final rootUri = _resolveRootUri(pkg['rootUri'] as String, configDir.path);
+      final packageUriStr = pkg['packageUri'] as String? ?? 'lib/';
+      map[name] = rootUri.resolve(packageUriStr).toFilePath();
+    }
+  } catch (_) {}
+  return map;
+}
+
+File? _findPackageConfigFile(Directory startDir) {
+  var currentDir = startDir;
+  while (true) {
+    final candidate = File(
+      p.join(currentDir.path, '.dart_tool', 'package_config.json'),
+    );
+    if (candidate.existsSync()) return candidate;
+    final parent = currentDir.parent;
+    if (parent.path == currentDir.path) return null;
+    currentDir = parent;
+  }
+}
+
+Uri _resolveRootUri(String rootUriStr, String baseDirPath) {
+  var normalized = rootUriStr;
+  if (!normalized.startsWith('file://')) {
+    final absoluteRoot = p.normalize(p.join(baseDirPath, normalized));
+    normalized = Uri.directory(absoluteRoot).toString();
+  }
+  if (!normalized.endsWith('/')) {
+    normalized = '$normalized/';
+  }
+  return Uri.parse(normalized);
 }
 
 /// Resets the cached package configuration map (useful for testing).
@@ -116,68 +120,34 @@ int? findMethodDeclarationLine(
     if (!file.existsSync()) return null;
 
     final lines = file.readAsLinesSync();
-
-    // 1. Find the class declaration line first
-    final classRegExp = RegExp(
-      r'^\s*(?:abstract\s+|base\s+|interface\s+|final\s+|sealed\s+)?class\s+' +
-          RegExp.escape(className) +
-          r'\b',
-    );
-    final mixinRegExp = RegExp(
-      r'^\s*mixin\s+' + RegExp.escape(className) + r'\b',
-    );
-    final extensionRegExp = RegExp(
-      r'^\s*extension\s+(?:on\s+)?' + RegExp.escape(className) + r'\b',
-    );
-
-    var classLineIdx = -1;
-    for (var i = 0; i < lines.length; i++) {
-      final line = lines[i];
-      if (classRegExp.hasMatch(line) ||
-          mixinRegExp.hasMatch(line) ||
-          extensionRegExp.hasMatch(line)) {
-        classLineIdx = i;
-        break;
-      }
-    }
-
+    final classLineIdx = _findTypeDeclarationLineIndex(lines, className);
     if (classLineIdx == -1) return null;
 
-    // 2. Search downwards from class declaration line to find method
-    // declaration
-    final String searchMethodName;
-    if (methodName == '==') {
-      searchMethodName = r'operator\s*==';
-    } else {
-      searchMethodName = RegExp.escape(methodName);
-    }
-
+    final searchMethodName = methodName == '=='
+        ? r'operator\s*=='
+        : RegExp.escape(methodName);
     final methodRegExp = RegExp(r'\b' + searchMethodName + r'\s*\(');
-
-    // Boundaries to stop search (any other class/mixin/extension)
-    final anyClassRegExp = RegExp(
-      r'^\s*(?:abstract\s+|base\s+|interface\s+|final\s+|sealed\s+)?class\s+\w+',
-    );
-    final anyMixinRegExp = RegExp(r'^\s*mixin\s+\w+');
-    final anyExtensionRegExp = RegExp(r'^\s*extension\s+(?:on\s+)?\w+');
 
     for (var i = classLineIdx; i < lines.length; i++) {
       final line = lines[i];
-
-      // If we hit another class/mixin/extension declaration, stop!
-      if (i > classLineIdx &&
-          (anyClassRegExp.hasMatch(line) ||
-              anyMixinRegExp.hasMatch(line) ||
-              anyExtensionRegExp.hasMatch(line))) {
+      if (i > classLineIdx && _matchTypeDeclarationName(line) != null) {
         break;
       }
-
       if (methodRegExp.hasMatch(line)) {
-        return i + 1; // Return 1-based line number!
+        return i + 1;
       }
     }
   } catch (_) {}
   return null;
+}
+
+int _findTypeDeclarationLineIndex(List<String> lines, String className) {
+  for (var i = 0; i < lines.length; i++) {
+    if (_matchTypeDeclarationName(lines[i]) == className) {
+      return i;
+    }
+  }
+  return -1;
 }
 
 /// Resolves the true enclosing class defining [methodName] in [filePath].
@@ -189,55 +159,21 @@ String? resolveClassForMethod(
   int lineNumber,
   String methodName,
 ) {
-  // 1. Check enclosing class of the sampled line first
   final enclosingClass = findEnclosingClass(filePath, lineNumber);
-  if (enclosingClass != null) {
-    final line = findMethodDeclarationLine(
-      filePath,
-      enclosingClass,
-      methodName,
-    );
-    if (line != null) {
-      return enclosingClass;
-    }
+  if (enclosingClass != null &&
+      findMethodDeclarationLine(filePath, enclosingClass, methodName) != null) {
+    return enclosingClass;
   }
 
-  // 2. Fallback: Scan the entire file for any class/mixin/extension defining it
   try {
     final file = File(filePath);
     if (!file.existsSync()) return null;
 
-    final lines = file.readAsLinesSync();
-    final classRegExp = RegExp(
-      r'^\s*(?:abstract\s+|base\s+|interface\s+|final\s+|sealed\s+)?class\s+(\w+)',
-    );
-    final mixinRegExp = RegExp(r'^\s*mixin\s+(\w+)');
-    final extensionRegExp = RegExp(r'^\s*extension\s+(?:on\s+)?(\w+)');
-
-    for (var i = 0; i < lines.length; i++) {
-      final line = lines[i];
-      String? candClass;
-
-      var match = classRegExp.firstMatch(line);
-      if (match != null) {
-        candClass = match.group(1);
-      } else {
-        match = mixinRegExp.firstMatch(line);
-        if (match != null) {
-          candClass = match.group(1);
-        } else {
-          match = extensionRegExp.firstMatch(line);
-          if (match != null) {
-            candClass = match.group(1);
-          }
-        }
-      }
-
-      if (candClass != null) {
-        final line = findMethodDeclarationLine(filePath, candClass, methodName);
-        if (line != null) {
-          return candClass;
-        }
+    for (final line in file.readAsLinesSync()) {
+      final candClass = _matchTypeDeclarationName(line);
+      if (candClass != null &&
+          findMethodDeclarationLine(filePath, candClass, methodName) != null) {
+        return candClass;
       }
     }
   } catch (_) {}

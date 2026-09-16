@@ -1,4 +1,5 @@
 import 'dart:io';
+
 import 'package:shelf/shelf.dart';
 import 'package:shelf/shelf_io.dart' as io;
 import 'package:shelf_static/shelf_static.dart';
@@ -15,6 +16,7 @@ class DevServer {
     // Inject COOP and COEP headers to enable SharedArrayBuffer for Wasm
     // multi-threaded rendering
     final handler = const Pipeline()
+        .addMiddleware(logRequests())
         .addMiddleware(
           (innerHandler) => (request) async {
             final response = await innerHandler(request);
@@ -30,7 +32,7 @@ class DevServer {
         .addHandler(staticHandler);
 
     // Use port 0 to find an available port
-    _server = await io.serve(handler, 'localhost', 0);
+    _server = await io.serve(handler, '127.0.0.1', 0);
     print('Serving $path on http://${_server!.address.host}:${_server!.port}');
 
     return _server!.port;

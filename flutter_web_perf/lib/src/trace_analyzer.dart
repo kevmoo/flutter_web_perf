@@ -1,6 +1,8 @@
 import 'dart:convert';
 import 'dart:io';
+
 import 'package:path/path.dart' as p;
+
 import 'performance_report.dart';
 import 'profile_model.dart';
 import 'profile_symbolicator.dart';
@@ -16,22 +18,109 @@ class TraceAnalyzer {
     this.expandCanvaskitFrames = false,
   });
 
-  static const String defaultTraceProcessorPath =
-      '/Users/kevmoo/github/perfetto/out/default/trace_processor_shell';
+  static String get defaultTraceProcessorPath => _resolveTraceProcessorPath();
+
+  static String _resolveTraceProcessorPath() {
+    final envOverride = Platform.environment['TRACE_PROCESSOR_SHELL'];
+    if (envOverride != null && File(envOverride).existsSync()) {
+      return envOverride;
+    }
+
+    final fromPath = _findExecutableOnPath('trace_processor_shell');
+    if (fromPath != null) return fromPath;
+
+    final home =
+        Platform.environment['HOME'] ?? '/usr/local/google/home/kevmoo';
+    final candidates = [
+      p.join(home, 'github/perfetto/out/default/trace_processor_shell'),
+      '/Users/kevmoo/github/perfetto/out/default/trace_processor_shell',
+      ?_findPerfettoPrebuilt(home),
+    ];
+    return candidates.firstWhere(
+      (path) => File(path).existsSync(),
+      orElse: () => candidates.first,
+    );
+  }
+
+  static String? _findExecutableOnPath(String binary) {
+    try {
+      final res = Process.runSync('which', [binary]);
+      final found = res.stdout.toString().trim();
+      if (res.exitCode == 0 && found.isNotEmpty && File(found).existsSync()) {
+        return found;
+      }
+    } catch (_) {}
+    return null;
+  }
+
+  static String? _findPerfettoPrebuilt(String home) {
+    final dir = Directory(p.join(home, '.local/share/perfetto/prebuilts'));
+    if (!dir.existsSync()) return null;
+    for (final entity in dir.listSync().whereType<File>()) {
+      if (p.basename(entity.path).startsWith('trace_processor_shell')) {
+        return entity.path;
+      }
+    }
+    return null;
+  }
 
   Future<PerformanceReport> generateReport({
     String? traceProcessorPath,
     required String profilePath,
   }) async {
     final tpPath = traceProcessorPath ?? defaultTraceProcessorPath;
-    final tpFile = File(tpPath);
-    if (!await tpFile.exists()) {
+    if (!await File(tpPath).exists()) {
       throw Exception('Trace Processor not found at: $tpPath');
     }
 
     print('Analyzing trace using Trace Processor...');
 
-    final frameHealthQuery = '''
+    final tempDir = await Directory.systemTemp.createTemp('query_');
+    final qFile = File(p.join(tempDir.path, 'query.sql'));
+
+    FrameHealth? frameHealth;
+    Map<PerformanceCategory, double> breakdown;
+
+    try {
+      frameHealth = await _queryFrameHealth(tpPath, qFile);
+      breakdown = await _queryTimeBreakdown(tpPath, qFile);
+    } finally {
+      await tempDir.delete(recursive: true);
+    }
+
+    if (frameHealth == null) {
+      throw Exception('Failed to parse frame health data from Trace Processor');
+    }
+
+    final profileFile = File(profilePath);
+    if (!await profileFile.exists()) {
+      throw Exception('Profile file not found: $profilePath');
+    }
+
+    final content = await profileFile.readAsString();
+    final profile = CpuProfile.fromJson(
+      json.decode(content) as Map<String, dynamic>,
+    );
+
+    return PerformanceReport(
+      frameHealth: frameHealth,
+      timeBreakdown: breakdown,
+      slowTasks: [],
+      hotFunctions: processProfile(profile),
+    );
+  }
+
+  Future<String> _executeSqlQuery(String tpPath, File qFile, String sql) async {
+    await qFile.writeAsString(sql);
+    final result = await Process.run(tpPath, [tracePath, '-q', qFile.path]);
+    if (result.exitCode != 0) {
+      throw Exception('Failed to run Trace Processor: ${result.stderr}');
+    }
+    return result.stdout.toString();
+  }
+
+  Future<FrameHealth?> _queryFrameHealth(String tpPath, File qFile) async {
+    const frameHealthQuery = '''
       WITH frame_times AS (
         SELECT ts,
                LEAD(ts) OVER (ORDER BY ts) - ts AS frame_dur
@@ -45,31 +134,50 @@ class TraceAnalyzer {
         (SELECT COUNT(*) FROM slice WHERE name = 'AnimationFrame') AS processed_count;
     ''';
 
+    final output = await _executeSqlQuery(tpPath, qFile, frameHealthQuery);
+    final lines = output.split('\n');
+    for (var i = 0; i < lines.length - 1; i++) {
+      if (lines[i].startsWith('"avg_interval_ms"')) {
+        final data = lines[i + 1].split(',');
+        return FrameHealth(
+          avgIntervalMs: double.tryParse(data[0]),
+          avgWorkMs: double.tryParse(data[1]),
+          requestedCount: int.tryParse(data[2]) ?? 0,
+          processedCount: int.tryParse(data[3]) ?? 0,
+        );
+      }
+    }
+    return null;
+  }
+
+  Future<Map<PerformanceCategory, double>> _queryTimeBreakdown(
+    String tpPath,
+    File qFile,
+  ) async {
+    final output = await _executeSqlQuery(tpPath, qFile, _buildBreakdownSql());
+    return _parseBreakdownOutput(output);
+  }
+
+  String _buildBreakdownSql() {
+    String patternToSql(String pattern) => pattern.contains('%')
+        ? "s.name LIKE '$pattern'"
+        : "s.name = '$pattern'";
+
     final sqlCases = PerformanceCategory.values
         .where((c) => c.sqlPatterns.isNotEmpty)
         .map((c) {
-          final conditions = c.sqlPatterns
-              .map((pattern) {
-                if (pattern.contains('%')) return "s.name LIKE '$pattern'";
-                return "s.name = '$pattern'";
-              })
-              .join(' OR ');
-          return "          WHEN $conditions THEN '${c.label}'";
+          final cond = c.sqlPatterns.map(patternToSql).join(' OR ');
+          return "          WHEN $cond THEN '${c.label}'";
         })
         .join('\n');
 
     final sqlWhere = PerformanceCategory.values
         .where((c) => c.sqlPatterns.isNotEmpty)
         .expand((c) => c.sqlPatterns)
-        .map(
-          (pattern) => pattern.contains('%')
-              ? "s.name LIKE '$pattern'"
-              : "s.name = '$pattern'",
-        )
+        .map(patternToSql)
         .join(' OR ');
 
-    final breakdownQuery =
-        '''
+    return '''
       SELECT
         CASE
 $sqlCases
@@ -83,92 +191,23 @@ $sqlCases
         AND ($sqlWhere)
       GROUP BY 1;
     ''';
+  }
 
-    final tempDir = await Directory.systemTemp.createTemp('query_');
-    final qFile = File(p.join(tempDir.path, 'query.sql'));
-
-    FrameHealth? frameHealth;
+  Map<PerformanceCategory, double> _parseBreakdownOutput(String output) {
     final breakdown = <PerformanceCategory, double>{};
+    final lines = output.split('\n');
+    final headerIdx = lines.indexWhere((l) => l.startsWith('"category"'));
+    if (headerIdx < 0) return breakdown;
 
-    try {
-      // 1. Run frame health query
-      await qFile.writeAsString(frameHealthQuery);
-      final result = await Process.run(tpPath, [tracePath, '-q', qFile.path]);
-
-      if (result.exitCode != 0) {
-        throw Exception('Failed to run Trace Processor: ${result.stderr}');
-      }
-
-      final lines = result.stdout.toString().split('\n');
-      for (var i = 0; i < lines.length; i++) {
-        if (lines[i].startsWith('"avg_interval_ms"')) {
-          if (i + 1 < lines.length) {
-            final data = lines[i + 1].split(',');
-            frameHealth = FrameHealth(
-              avgIntervalMs: double.tryParse(data[0]),
-              avgWorkMs: double.tryParse(data[1]),
-              requestedCount: int.tryParse(data[2]) ?? 0,
-              processedCount: int.tryParse(data[3]) ?? 0,
-            );
-          }
-          break;
-        }
-      }
-
-      // 2. Run breakdown query
-      await qFile.writeAsString(breakdownQuery);
-      final result2 = await Process.run(tpPath, [tracePath, '-q', qFile.path]);
-
-      if (result2.exitCode != 0) {
-        throw Exception(
-          'Failed to run Trace Processor for breakdown: ${result2.stderr}',
-        );
-      }
-
-      final lines2 = result2.stdout.toString().split('\n');
-      for (var i = 0; i < lines2.length; i++) {
-        if (lines2[i].startsWith('"category"')) {
-          for (var j = i + 1; j < lines2.length; j++) {
-            final line = lines2[j];
-            if (line.isEmpty) continue;
-            final data = line.split(',');
-            if (data.length == 2) {
-              final rawCat = data[0].replaceAll('"', '');
-              final cat = PerformanceCategory.fromLabel(rawCat);
-              final dur = double.tryParse(data[1]) ?? 0.0;
-              breakdown[cat] = (breakdown[cat] ?? 0.0) + dur;
-            }
-          }
-          break;
-        }
-      }
-    } finally {
-      await tempDir.delete(recursive: true);
+    for (var j = headerIdx + 1; j < lines.length; j++) {
+      final data = lines[j].split(',');
+      if (data.length != 2) continue;
+      final rawCat = data[0].replaceAll('"', '');
+      final cat = PerformanceCategory.fromLabel(rawCat);
+      final dur = double.tryParse(data[1]) ?? 0.0;
+      breakdown[cat] = (breakdown[cat] ?? 0.0) + dur;
     }
-
-    if (frameHealth == null) {
-      throw Exception('Failed to parse frame health data from Trace Processor');
-    }
-
-    // 3. Analyze Profile
-    final profileFile = File(profilePath);
-    if (!await profileFile.exists()) {
-      throw Exception('Profile file not found: $profilePath');
-    }
-
-    final content = await profileFile.readAsString();
-    final profile = CpuProfile.fromJson(
-      json.decode(content) as Map<String, dynamic>,
-    );
-
-    final hotFunctions = processProfile(profile);
-
-    return PerformanceReport(
-      frameHealth: frameHealth,
-      timeBreakdown: breakdown,
-      slowTasks: [], // TODO: Add slow tasks query if needed
-      hotFunctions: hotFunctions,
-    );
+    return breakdown;
   }
 
   List<HotFunction> processProfile(CpuProfile profile) {
@@ -182,199 +221,232 @@ $sqlCases
       }
     }
 
-    final exclusiveFunctionCounts = <String, int>{};
-    final functionUrls = <String, String>{};
-    final functionLineCounts = <String, Map<int, int>>{};
-    final functionWasmIndices = <String, int?>{};
-
-    bool isInternalOrInterop(CpuProfileNode node) {
-      final frame = node.callFrame;
-      final url = frame.url;
-      final name = frame.functionName;
-
-      // 1. V8 Internals and generic engine frames often have empty URLs or
-      // are explicitly named.
-      if (url.isEmpty) {
-        return true;
-      }
-
-      // 2. JS Interop wrappers in Wasm builds. These are minified (e.g. gD, hD)
-      // and represent the boundary between Dart and the Browser DOM/APIs.
-      // We want to collapse these so the sample is attributed to the Dart code
-      // that initiated the interop.
-      if (url.endsWith('.mjs') || url.endsWith('.js')) {
-        return true;
-      }
-
-      // 3. Dart infrastructure that we want to collapse to see the actual user/framework work.
-      if (url.startsWith('dart:developer') || url.startsWith('dart:_')) {
-        return true;
-      }
-
-      // 4. Raw wasm functions (unmapped trampolines).
-      if (name.startsWith('wasm-function[') &&
-          frame.wasmFunctionIndex == null) {
-        return true;
-      }
-
-      // We no longer use a massive list of magic strings.
-      // If it's a Dart frame (has a dart:, package:, or .wasm URL), we keep it!
-      return false;
-    }
-
-    final functionPhaseCounts = <String, Map<PerformanceCategory, int>>{};
+    final aggregator = _ProfileSampleAggregator(
+      nodeMap: nodeMap,
+      parentMap: parentMap,
+      expandCanvaskitFrames: expandCanvaskitFrames,
+    );
 
     for (final leafNodeId in profile.samples) {
-      int? currentNodeId = leafNodeId;
-      CpuProfileNode? meaningfulNode;
-      var meaningfulKey = '';
-      var meaningfulUrl = '';
-      final stackNames = <String>[];
-      String? targetUrl;
-
-      while (currentNodeId != null) {
-        final node = nodeMap[currentNodeId];
-        if (node == null) break;
-
-        final frame = node.callFrame;
-        final key = frame.functionName;
-        final url = normalizeLocation(frame.url);
-
-        stackNames.add(key);
-        targetUrl ??= url;
-
-        // Check if we should collapse CanvasKit
-        if (!expandCanvaskitFrames &&
-            (url.contains('canvaskit.wasm') || url.contains('skwasm.wasm'))) {
-          meaningfulNode = node;
-          meaningfulKey = 'CanvasKit Wasm (collapsed)';
-          meaningfulUrl = url;
-        }
-
-        // If it's not an internal/interop frame, we've found our true caller!
-        if (meaningfulNode == null && !isInternalOrInterop(node)) {
-          if (key.isNotEmpty) {
-            meaningfulNode = node;
-            meaningfulKey = key;
-            meaningfulUrl = url;
-          }
-        }
-
-        // Walk up the call stack
-        currentNodeId = parentMap[currentNodeId];
-      }
-
-      if (meaningfulNode != null) {
-        final frame = meaningfulNode.callFrame;
-        exclusiveFunctionCounts[meaningfulKey] =
-            (exclusiveFunctionCounts[meaningfulKey] ?? 0) + 1;
-        functionUrls[meaningfulKey] = meaningfulUrl;
-
-        final lineNumber = frame.lineNumber;
-        if (lineNumber != null && lineNumber >= 0) {
-          final lineMap = functionLineCounts.putIfAbsent(
-            meaningfulKey,
-            () => <int, int>{},
-          );
-          lineMap[lineNumber] = (lineMap[lineNumber] ?? 0) + 1;
-        }
-
-        if (frame.wasmFunctionIndex != null) {
-          functionWasmIndices[meaningfulKey] = frame.wasmFunctionIndex;
-        }
-
-        // Determine the framework phase of this sample
-        var phase = PerformanceCategory.other;
-        for (final name in stackNames) {
-          if (name.contains('buildScope') ||
-              name.contains('rebuild') ||
-              name.contains('performRebuild')) {
-            phase = PerformanceCategory.flutterBuild;
-            break;
-          }
-          if (name.contains('performLayout') ||
-              name.contains('flushLayout') ||
-              name.contains('.layout')) {
-            phase = PerformanceCategory.flutterLayout;
-            break;
-          }
-          if (name.contains('paintChild') ||
-              name.contains('flushPaint') ||
-              name.contains('.paint')) {
-            phase = PerformanceCategory.flutterPaint;
-            break;
-          }
-          if (name.contains('addToScene') ||
-              name.contains('flushCompositing')) {
-            phase = PerformanceCategory.flutterCompositing;
-            break;
-          }
-        }
-
-        if (phase == PerformanceCategory.other &&
-            (targetUrl != null &&
-                (targetUrl.contains('canvaskit.wasm') ||
-                    targetUrl.contains('skwasm.wasm')))) {
-          phase = PerformanceCategory.engineRaster;
-        }
-
-        final phaseMap = functionPhaseCounts.putIfAbsent(
-          meaningfulKey,
-          () => <PerformanceCategory, int>{},
-        );
-        phaseMap[phase] = (phaseMap[phase] ?? 0) + 1;
-      }
+      aggregator.recordSample(leafNodeId);
     }
 
-    final totalSamples = profile.samples.length;
+    return aggregator.buildTopHotFunctions(profile.samples.length);
+  }
+}
 
+class _ProfileSampleAggregator {
+  final Map<int, CpuProfileNode> nodeMap;
+  final Map<int, int> parentMap;
+  final bool expandCanvaskitFrames;
+
+  final exclusiveFunctionCounts = <String, int>{};
+  final functionNames = <String, String>{};
+  final functionLocationCounts = <String, Map<(String, int?), int>>{};
+  final functionWasmIndices = <String, int?>{};
+  final functionPhaseCounts = <String, Map<PerformanceCategory, int>>{};
+
+  _ProfileSampleAggregator({
+    required this.nodeMap,
+    required this.parentMap,
+    required this.expandCanvaskitFrames,
+  });
+
+  void recordSample(int leafNodeId) {
+    final walked = _walkCallStack(leafNodeId);
+    final meaningfulNode = walked.meaningfulNode;
+    if (meaningfulNode == null) return;
+
+    final frame = meaningfulNode.callFrame;
+    final bucketKey = _bucketKeyFor(walked, frame);
+    exclusiveFunctionCounts[bucketKey] =
+        (exclusiveFunctionCounts[bucketKey] ?? 0) + 1;
+    functionNames[bucketKey] = walked.meaningfulKey;
+
+    final lineNumber = (frame.lineNumber != null && frame.lineNumber! >= 0)
+        ? frame.lineNumber
+        : null;
+    final locKey = (walked.meaningfulUrl, lineNumber);
+    final locMap = functionLocationCounts.putIfAbsent(
+      bucketKey,
+      () => <(String, int?), int>{},
+    );
+    locMap[locKey] = (locMap[locKey] ?? 0) + 1;
+
+    if (frame.wasmFunctionIndex != null) {
+      functionWasmIndices[bucketKey] = frame.wasmFunctionIndex;
+    }
+
+    final phase = _classifyStackPhase(walked.stackNames, walked.targetUrl);
+    final phaseMap = functionPhaseCounts.putIfAbsent(
+      bucketKey,
+      () => <PerformanceCategory, int>{},
+    );
+    phaseMap[phase] = (phaseMap[phase] ?? 0) + 1;
+  }
+
+  String _bucketKeyFor(_StackWalkResult walked, CallFrame frame) {
+    if (walked.meaningfulKey == 'CanvasKit Wasm (collapsed)' ||
+        walked.meaningfulKey.contains('.')) {
+      return walked.meaningfulKey;
+    }
+    if (frame.wasmFunctionIndex != null) {
+      return 'wasm:${frame.wasmFunctionIndex}';
+    }
+    return '${walked.meaningfulUrl}#${walked.meaningfulKey}';
+  }
+
+  _StackWalkResult _walkCallStack(int leafNodeId) {
+    int? currentNodeId = leafNodeId;
+    CpuProfileNode? meaningfulNode;
+    var meaningfulKey = '';
+    var meaningfulUrl = '';
+    final stackNames = <String>[];
+    String? targetUrl;
+
+    while (currentNodeId != null) {
+      final node = nodeMap[currentNodeId];
+      if (node == null) break;
+
+      final frame = node.callFrame;
+      final key = frame.functionName;
+      final url = normalizeLocation(frame.url);
+
+      stackNames.add(key);
+      targetUrl ??= url;
+
+      if (!expandCanvaskitFrames && _isEngineWasmUrl(url)) {
+        meaningfulNode = node;
+        meaningfulKey = 'CanvasKit Wasm (collapsed)';
+        meaningfulUrl = url;
+      } else if (meaningfulNode == null &&
+          !_isInternalOrInterop(node) &&
+          key.isNotEmpty) {
+        meaningfulNode = node;
+        meaningfulKey = key;
+        meaningfulUrl = url;
+      }
+
+      currentNodeId = parentMap[currentNodeId];
+    }
+
+    return _StackWalkResult(
+      meaningfulNode: meaningfulNode,
+      meaningfulKey: meaningfulKey,
+      meaningfulUrl: meaningfulUrl,
+      stackNames: stackNames,
+      targetUrl: targetUrl,
+    );
+  }
+
+  bool _isInternalOrInterop(CpuProfileNode node) {
+    final frame = node.callFrame;
+    final url = frame.url;
+    if (url.isEmpty || url.endsWith('.mjs') || url.endsWith('.js')) {
+      return true;
+    }
+    if (url.startsWith('dart:developer') || url.startsWith('dart:_')) {
+      return true;
+    }
+    return url.contains('main.dart.wasm') ||
+        (frame.functionName.startsWith('wasm-function[') &&
+            frame.wasmFunctionIndex == null);
+  }
+
+  bool _isEngineWasmUrl(String url) =>
+      url.contains('canvaskit.wasm') || url.contains('skwasm.wasm');
+
+  PerformanceCategory _classifyStackPhase(
+    List<String> stackNames,
+    String? targetUrl,
+  ) {
+    for (final name in stackNames) {
+      final matched = _phaseForFrameName(name);
+      if (matched != null) return matched;
+    }
+    if (targetUrl != null && _isEngineWasmUrl(targetUrl)) {
+      return PerformanceCategory.engineRaster;
+    }
+    return PerformanceCategory.other;
+  }
+
+  PerformanceCategory? _phaseForFrameName(String name) {
+    if (name.contains('buildScope') ||
+        name.contains('rebuild') ||
+        name.contains('performRebuild')) {
+      return PerformanceCategory.flutterBuild;
+    }
+    if (name.contains('performLayout') ||
+        name.contains('flushLayout') ||
+        name.contains('.layout')) {
+      return PerformanceCategory.flutterLayout;
+    }
+    if (name.contains('paintChild') ||
+        name.contains('flushPaint') ||
+        name.contains('.paint')) {
+      return PerformanceCategory.flutterPaint;
+    }
+    if (name.contains('addToScene') || name.contains('flushCompositing')) {
+      return PerformanceCategory.flutterCompositing;
+    }
+    return null;
+  }
+
+  List<HotFunction> buildTopHotFunctions(int totalSamples) {
     final sortedFunctions = exclusiveFunctionCounts.entries.toList()
       ..sort((a, b) => b.value.compareTo(a.value));
 
-    final hotFunctions = <HotFunction>[];
-    for (var i = 0; i < 10 && i < sortedFunctions.length; i++) {
-      final entry = sortedFunctions[i];
-      final lineMap = functionLineCounts[entry.key];
-      int? hottestLine;
-      if (lineMap != null && lineMap.isNotEmpty) {
-        hottestLine = lineMap.entries
-            .reduce((a, b) => a.value > b.value ? a : b)
-            .key;
-      }
+    return [
+      for (var i = 0; i < 10 && i < sortedFunctions.length; i++)
+        _buildHotFunction(sortedFunctions[i], totalSamples),
+    ];
+  }
 
-      final samplesCount = entry.value;
-      final percent = totalSamples > 0
-          ? (samplesCount / totalSamples) * 100
-          : 0.0;
+  HotFunction _buildHotFunction(MapEntry<String, int> entry, int totalSamples) {
+    final bucketKey = entry.key;
+    final name = functionNames[bucketKey] ?? bucketKey;
+    final samplesCount = entry.value;
+    final dominantLocation = _dominantKey(functionLocationCounts[bucketKey]);
+    var dominantPhase =
+        _dominantKey(functionPhaseCounts[bucketKey]) ??
+        PerformanceCategory.other;
 
-      final phaseMap = functionPhaseCounts[entry.key];
-      var dominantPhase = PerformanceCategory.other;
-      if (phaseMap != null && phaseMap.isNotEmpty) {
-        dominantPhase = phaseMap.entries
-            .reduce((a, b) => a.value > b.value ? a : b)
-            .key;
-      }
-      if (dominantPhase == PerformanceCategory.other) {
-        dominantPhase = entry.key.contains('CanvasKit Wasm')
-            ? PerformanceCategory.engineRaster
-            : PerformanceCategory.jsScripting;
-      }
-
-      hotFunctions.add(
-        HotFunction(
-          name: entry.key,
-          url: functionUrls[entry.key] ?? '',
-          samples: samplesCount,
-          percent: percent,
-          category: dominantPhase,
-          lineNumber: hottestLine,
-          // Column numbers are generally useless for human-readable output
-          columnNumber: null,
-          wasmFunctionIndex: functionWasmIndices[entry.key],
-        ),
-      );
+    if (dominantPhase == PerformanceCategory.other) {
+      dominantPhase = name.contains('CanvasKit Wasm')
+          ? PerformanceCategory.engineRaster
+          : PerformanceCategory.jsScripting;
     }
 
-    return hotFunctions;
+    return HotFunction(
+      name: name,
+      url: dominantLocation?.$1 ?? '',
+      samples: samplesCount,
+      percent: totalSamples > 0 ? (samplesCount / totalSamples) * 100 : 0.0,
+      category: dominantPhase,
+      lineNumber: dominantLocation?.$2,
+      columnNumber: null,
+      wasmFunctionIndex: functionWasmIndices[bucketKey],
+    );
   }
+
+  static K? _dominantKey<K>(Map<K, int>? counts) {
+    if (counts == null || counts.isEmpty) return null;
+    return counts.entries.reduce((a, b) => a.value > b.value ? a : b).key;
+  }
+}
+
+class _StackWalkResult {
+  final CpuProfileNode? meaningfulNode;
+  final String meaningfulKey;
+  final String meaningfulUrl;
+  final List<String> stackNames;
+  final String? targetUrl;
+
+  _StackWalkResult({
+    required this.meaningfulNode,
+    required this.meaningfulKey,
+    required this.meaningfulUrl,
+    required this.stackNames,
+    required this.targetUrl,
+  });
 }
