@@ -12,15 +12,15 @@ This document outlines the software engineering designs, core components, and cr
 ## 🛠 Architecture & Key Components
 
 ### 1. Orchestration & CLI Concerns Separation
-*   [flutter_web_perf.dart](file:///Users/kevmoo/github/kevmoo/flutter_web_perf/flutter_web_perf/bin/flutter_web_perf.dart): The console executable entry point. It encapsulates all `ArgParser` definitions, parameter mappings, and CLI type conversions.
-*   [entry_point.dart](file:///Users/kevmoo/github/kevmoo/flutter_web_perf/flutter_web_perf/lib/src/entry_point.dart): Completely decoupled from `package:args`! Exposes a strongly-typed, named `runApp` API signature for clean library execution.
-*   [chrome_controller.dart](file:///Users/kevmoo/github/kevmoo/flutter_web_perf/flutter_web_perf/lib/src/chrome_controller.dart): Launches a hermetic instance of headless Chrome. It leverages dynamic remote debugger port allocation (`0`) and hooks into the CDP `Profiler` and `Tracing` domains to extract V8 traces and high-resolution CPU profiles.
+*   [flutter_web_perf.dart](../flutter_web_perf/bin/flutter_web_perf.dart): The console executable entry point. It encapsulates all `ArgParser` definitions, parameter mappings, and CLI type conversions.
+*   [entry_point.dart](../flutter_web_perf/lib/src/entry_point.dart): Completely decoupled from `package:args`! Exposes a strongly-typed, named `runApp` API signature for clean library execution.
+*   [chrome_controller.dart](../flutter_web_perf/lib/src/chrome_controller.dart): Launches a hermetic instance of headless Chrome. It leverages dynamic remote debugger port allocation (`0`) and hooks into the CDP `Profiler` and `Tracing` domains to extract V8 traces and high-resolution CPU profiles.
 
 ### 2. Wasm Multithreading Support
-*   [server.dart](file:///Users/kevmoo/github/kevmoo/flutter_web_perf/flutter_web_perf/lib/src/server.dart): Features a Shelf Pipeline middleware injecting **COOP (`Cross-Origin-Opener-Policy: same-origin`)** and **COEP (`Cross-Origin-Embedder-Policy: require-corp`)** headers. These are strictly required by modern browsers to enable `SharedArrayBuffer`. Serving them allows SkWasm to spawn a dedicated multithreaded Web Worker thread (`DedicatedWorker thread`) under the hood, shifting heavy rendering tasks off the main thread!
+*   [server.dart](../flutter_web_perf/lib/src/server.dart): Features a Shelf Pipeline middleware injecting **COOP (`Cross-Origin-Opener-Policy: same-origin`)** and **COEP (`Cross-Origin-Embedder-Policy: require-corp`)** headers. These are strictly required by modern browsers to enable `SharedArrayBuffer`. Serving them allows SkWasm to spawn a dedicated multithreaded Web Worker thread (`DedicatedWorker thread`) under the hood, shifting heavy rendering tasks off the main thread!
 
 ### 3. Centralized Type-Safe Category Domain Model
-*   [performance_report.dart](file:///Users/kevmoo/github/kevmoo/flutter_web_perf/flutter_web_perf/lib/src/performance_report.dart): Defines the **`PerformanceCategory`** enum using required named constructor parameters. Centralizes the human-readable `label`, Perfetto database `sqlPatterns`, and a domain-driven `shortLabel` getter:
+*   [performance_report.dart](../flutter_web_perf/lib/src/performance_report.dart): Defines the **`PerformanceCategory`** enum using required named constructor parameters. Centralizes the human-readable `label`, Perfetto database `sqlPatterns`, and a domain-driven `shortLabel` getter:
 
 ```dart
 enum PerformanceCategory {
@@ -35,11 +35,11 @@ enum PerformanceCategory {
 This strongly types the `timeBreakdown` map as `Map<PerformanceCategory, double>` across all components, completely eliminating all hardcoded magic strings and spelling typos.
 
 ### 4. Dynamic SQL Case Generation & Advanced Analysis
-*   [trace_analyzer.dart](file:///Users/kevmoo/github/kevmoo/flutter_web_perf/flutter_web_perf/lib/src/trace_analyzer.dart): Connects to Perfetto's `trace_processor_shell`. Instead of hardcoding SQL cases, it **dynamically generates the SQL `CASE WHEN` blocks and `WHERE` filter strings directly from the `PerformanceCategory` enum metadata at runtime!**
+*   [trace_analyzer.dart](../flutter_web_perf/lib/src/trace_analyzer.dart): Connects to Perfetto's `trace_processor_shell`. Instead of hardcoding SQL cases, it **dynamically generates the SQL `CASE WHEN` blocks and `WHERE` filter strings directly from the `PerformanceCategory` enum metadata at runtime!**
 *   **Main-Thread Filter & Process Tracks:** Performs a `LEFT JOIN` with `thread_track` and `thread` filtering `(t.name = 'CrRendererMain' OR t.name IS NULL)`. This successfully captures process-level timeline events (like `BUILD` and `LAYOUT`) which lack thread tracks, while cleanly excluding parallel compositor and Web Worker thread slices.
 
 ### 5. Premium HTML Visualizer
-*   [html_reporter.dart](file:///Users/kevmoo/github/kevmoo/flutter_web_perf/flutter_web_perf/lib/src/html_reporter.dart): Renders a glowing, dark-mode glassmorphic HTML dashboard.
+*   [html_reporter.dart](../flutter_web_perf/lib/src/html_reporter.dart): Renders a glowing, dark-mode glassmorphic HTML dashboard.
 *   **Nested CPU Subtraction:** To prevent double-counting due to recursive child slices (e.g. nesting layout calls), the visualizer mathematically subtracts child times (`Build`, `Layout`, `Paint`) from the parent `JS Scripting` container, rendering the true, exclusive `'JS Scripting (other)'` platform overhead.
 *   **Dynamic 10% Increment Scaling:** Progress bars dynamically scale to the next 10% multiple based on the maximum category value (e.g. scaling up to `30%` bounds), optimizing screen space while keeping mathematically precise labels.
 *   **Perfect Grid Alignments:** Utilizes a pixel-perfect 3-column CSS Grid that aligns all category labels, progress tracks, and metric values perfectly.
