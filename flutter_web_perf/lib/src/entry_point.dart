@@ -203,6 +203,7 @@ class _AppRunner {
       '-O',
       '0',
       '--wasm',
+      '--no-strip-wasm',
     ]);
 
     print('Extracting unoptimized Wasm disassembly...');

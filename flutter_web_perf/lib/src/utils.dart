@@ -7,7 +7,9 @@ final _anyClassRegExp = RegExp(
   r'^\s*(?:abstract\s+|base\s+|interface\s+|final\s+|sealed\s+)?class\s+(\w+)',
 );
 final _anyMixinRegExp = RegExp(r'^\s*mixin\s+(\w+)');
-final _anyExtensionRegExp = RegExp(r'^\s*extension\s+(?:on\s+)?(\w+)');
+final _anyExtensionRegExp = RegExp(
+  r'^\s*extension\s+(?:type\s+)?(?:on\s+)?(\w+)',
+);
 
 String? _matchTypeDeclarationName(String line) {
   return _anyClassRegExp.firstMatch(line)?.group(1) ??

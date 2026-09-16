@@ -184,9 +184,11 @@ class ChromeController {
     print('Tracing stopped, waiting for data...');
 
     final completer = Completer<List<Map<String, dynamic>>>();
-    _connection?.onNotification.listen((notification) {
+    StreamSubscription<WipEvent>? completeSub;
+    completeSub = _connection?.onNotification.listen((notification) {
       if (notification.method == 'Tracing.tracingComplete') {
         subscription?.cancel();
+        completeSub?.cancel();
         completer.complete(data);
       }
     });

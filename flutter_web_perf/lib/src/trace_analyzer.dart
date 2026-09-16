@@ -242,8 +242,7 @@ class _ProfileSampleAggregator {
 
   final exclusiveFunctionCounts = <String, int>{};
   final functionNames = <String, String>{};
-  final functionUrls = <String, String>{};
-  final functionLineCounts = <String, Map<int, int>>{};
+  final functionLocationCounts = <String, Map<(String, int?), int>>{};
   final functionWasmIndices = <String, int?>{};
   final functionPhaseCounts = <String, Map<PerformanceCategory, int>>{};
 
@@ -263,16 +262,16 @@ class _ProfileSampleAggregator {
     exclusiveFunctionCounts[bucketKey] =
         (exclusiveFunctionCounts[bucketKey] ?? 0) + 1;
     functionNames[bucketKey] = walked.meaningfulKey;
-    functionUrls[bucketKey] = walked.meaningfulUrl;
 
-    final lineNumber = frame.lineNumber;
-    if (lineNumber != null && lineNumber >= 0) {
-      final lineMap = functionLineCounts.putIfAbsent(
-        bucketKey,
-        () => <int, int>{},
-      );
-      lineMap[lineNumber] = (lineMap[lineNumber] ?? 0) + 1;
-    }
+    final lineNumber = (frame.lineNumber != null && frame.lineNumber! >= 0)
+        ? frame.lineNumber
+        : null;
+    final locKey = (walked.meaningfulUrl, lineNumber);
+    final locMap = functionLocationCounts.putIfAbsent(
+      bucketKey,
+      () => <(String, int?), int>{},
+    );
+    locMap[locKey] = (locMap[locKey] ?? 0) + 1;
 
     if (frame.wasmFunctionIndex != null) {
       functionWasmIndices[bucketKey] = frame.wasmFunctionIndex;
@@ -287,7 +286,8 @@ class _ProfileSampleAggregator {
   }
 
   String _bucketKeyFor(_StackWalkResult walked, CallFrame frame) {
-    if (walked.meaningfulKey == 'CanvasKit Wasm (collapsed)') {
+    if (walked.meaningfulKey == 'CanvasKit Wasm (collapsed)' ||
+        walked.meaningfulKey.contains('.')) {
       return walked.meaningfulKey;
     }
     if (frame.wasmFunctionIndex != null) {
@@ -348,8 +348,9 @@ class _ProfileSampleAggregator {
     if (url.startsWith('dart:developer') || url.startsWith('dart:_')) {
       return true;
     }
-    return frame.functionName.startsWith('wasm-function[') &&
-        frame.wasmFunctionIndex == null;
+    return url.contains('main.dart.wasm') ||
+        (frame.functionName.startsWith('wasm-function[') &&
+            frame.wasmFunctionIndex == null);
   }
 
   bool _isEngineWasmUrl(String url) =>
@@ -405,15 +406,10 @@ class _ProfileSampleAggregator {
     final bucketKey = entry.key;
     final name = functionNames[bucketKey] ?? bucketKey;
     final samplesCount = entry.value;
-    final lineMap = functionLineCounts[bucketKey];
-    final hottestLine = (lineMap != null && lineMap.isNotEmpty)
-        ? lineMap.entries.reduce((a, b) => a.value > b.value ? a : b).key
-        : null;
-
-    final phaseMap = functionPhaseCounts[bucketKey];
-    var dominantPhase = (phaseMap != null && phaseMap.isNotEmpty)
-        ? phaseMap.entries.reduce((a, b) => a.value > b.value ? a : b).key
-        : PerformanceCategory.other;
+    final dominantLocation = _dominantKey(functionLocationCounts[bucketKey]);
+    var dominantPhase =
+        _dominantKey(functionPhaseCounts[bucketKey]) ??
+        PerformanceCategory.other;
 
     if (dominantPhase == PerformanceCategory.other) {
       dominantPhase = name.contains('CanvasKit Wasm')
@@ -423,14 +419,19 @@ class _ProfileSampleAggregator {
 
     return HotFunction(
       name: name,
-      url: functionUrls[bucketKey] ?? '',
+      url: dominantLocation?.$1 ?? '',
       samples: samplesCount,
       percent: totalSamples > 0 ? (samplesCount / totalSamples) * 100 : 0.0,
       category: dominantPhase,
-      lineNumber: hottestLine,
+      lineNumber: dominantLocation?.$2,
       columnNumber: null,
       wasmFunctionIndex: functionWasmIndices[bucketKey],
     );
+  }
+
+  static K? _dominantKey<K>(Map<K, int>? counts) {
+    if (counts == null || counts.isEmpty) return null;
+    return counts.entries.reduce((a, b) => a.value > b.value ? a : b).key;
   }
 }
 

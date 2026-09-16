@@ -55,7 +55,7 @@ Future<Map<String, dynamic>> symbolicateProfile({
 
   final mapContent = await mapFile.readAsString();
   final mapping = parse(mapContent) as SingleMapping;
-  final isWasmMap = sourceMapPath.contains('wasm');
+  final isWasmMap = sourceMapPath.endsWith('.wasm.map');
 
   for (final node in profile.nodes) {
     _symbolicateCallFrame(node.callFrame, mapping, isWasmMap: isWasmMap);

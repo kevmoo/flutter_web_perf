@@ -41,7 +41,8 @@ Map<String, RegExp> _buildIdentifierRegexMap(List<String> identifiers) {
   final regexMap = <String, RegExp>{};
   for (final id in identifiers) {
     final escapedTarget = RegExp.escape(id);
-    final namePattern = r'\$.*' + escapedTarget + r'(?:\s|\(|"|$)';
+    final namePattern =
+        r'\$(?:")?(?:[^\s"\(]*\.)?' + escapedTarget + r'(?:\s|\(|"|$)';
     final indexPattern = r'\(func[^\)]*\(;' + escapedTarget + r';\)';
     regexMap[id] = RegExp('($namePattern|$indexPattern)');
   }
