@@ -155,7 +155,41 @@ class TraceAnalyzer {
     File qFile,
   ) async {
     final output = await _executeSqlQuery(tpPath, qFile, _buildBreakdownSql());
-    return _parseBreakdownOutput(output);
+    final breakdown = _parseBreakdownOutput(output);
+    final nestedBuildInLayoutMs = await _queryNestedBuildInLayoutMs(
+      tpPath,
+      qFile,
+    );
+    if (nestedBuildInLayoutMs > 0 &&
+        breakdown.containsKey(PerformanceCategory.flutterLayout)) {
+      final rawLayout = breakdown[PerformanceCategory.flutterLayout]!;
+      breakdown[PerformanceCategory.flutterLayout] =
+          (rawLayout - nestedBuildInLayoutMs).clamp(0.0, double.infinity);
+    }
+    return breakdown;
+  }
+
+  Future<double> _queryNestedBuildInLayoutMs(String tpPath, File qFile) async {
+    const sql = '''
+      WITH layout_slices AS (
+        SELECT ts, ts + dur AS end_ts FROM slice WHERE name = 'LAYOUT'
+      ),
+      build_slices AS (
+        SELECT id, ts, ts + dur AS end_ts, dur FROM slice WHERE name = 'BUILD'
+      )
+      SELECT COALESCE(SUM(b.dur) / 1000000.0, 0.0) AS nested_build_ms
+      FROM build_slices b
+      WHERE EXISTS (
+        SELECT 1 FROM layout_slices l
+        WHERE b.ts >= l.ts AND b.end_ts <= l.end_ts
+      );
+    ''';
+    final output = await _executeSqlQuery(tpPath, qFile, sql);
+    final lines = output.trim().split('\n');
+    if (lines.length >= 2) {
+      return double.tryParse(lines.last.trim()) ?? 0.0;
+    }
+    return 0.0;
   }
 
   String _buildBreakdownSql() {
@@ -167,6 +201,9 @@ class TraceAnalyzer {
         .where((c) => c.sqlPatterns.isNotEmpty)
         .map((c) {
           final cond = c.sqlPatterns.map(patternToSql).join(' OR ');
+          if (c == PerformanceCategory.engineRaster) {
+            return "          WHEN ($cond) OR (t.name = 'DedicatedWorker thread' AND s.depth = 0) THEN '${c.label}'";
+          }
           return "          WHEN $cond THEN '${c.label}'";
         })
         .join('\n');
@@ -187,8 +224,11 @@ $sqlCases
       FROM slice s
       LEFT JOIN thread_track tt ON s.track_id = tt.id
       LEFT JOIN thread t ON tt.utid = t.utid
-      WHERE (t.name = 'CrRendererMain' OR t.name IS NULL)
-        AND ($sqlWhere)
+      WHERE (
+          (t.name = 'CrRendererMain' OR t.name IS NULL)
+          AND ($sqlWhere)
+        )
+        OR (t.name = 'DedicatedWorker thread' AND s.depth = 0)
       GROUP BY 1;
     ''';
   }
@@ -241,6 +281,8 @@ class _ProfileSampleAggregator {
   final bool expandCanvaskitFrames;
 
   final exclusiveFunctionCounts = <String, int>{};
+  final inclusiveFunctionCounts = <String, int>{};
+  final functionCallerCounts = <String, Map<String, int>>{};
   final functionNames = <String, String>{};
   final functionLocationCounts = <String, Map<(String, int?), int>>{};
   final functionWasmIndices = <String, int?>{};
@@ -258,10 +300,31 @@ class _ProfileSampleAggregator {
     if (meaningfulNode == null) return;
 
     final frame = meaningfulNode.callFrame;
-    final bucketKey = _bucketKeyFor(walked, frame);
+    final bucketKey = _bucketKeyForKeyAndUrl(
+      walked.meaningfulKey,
+      walked.meaningfulUrl,
+      frame,
+    );
     exclusiveFunctionCounts[bucketKey] =
         (exclusiveFunctionCounts[bucketKey] ?? 0) + 1;
     functionNames[bucketKey] = walked.meaningfulKey;
+
+    final seenInStack = <String>{};
+    for (final stackEntry in walked.meaningfulStack) {
+      if (seenInStack.add(stackEntry.bucketKey)) {
+        inclusiveFunctionCounts[stackEntry.bucketKey] =
+            (inclusiveFunctionCounts[stackEntry.bucketKey] ?? 0) + 1;
+      }
+    }
+
+    if (walked.meaningfulStack.length >= 2) {
+      final caller = walked.meaningfulStack[1];
+      final callerMap = functionCallerCounts.putIfAbsent(
+        bucketKey,
+        () => <String, int>{},
+      );
+      callerMap[caller.key] = (callerMap[caller.key] ?? 0) + 1;
+    }
 
     final lineNumber = (frame.lineNumber != null && frame.lineNumber! >= 0)
         ? frame.lineNumber
@@ -285,15 +348,19 @@ class _ProfileSampleAggregator {
     phaseMap[phase] = (phaseMap[phase] ?? 0) + 1;
   }
 
-  String _bucketKeyFor(_StackWalkResult walked, CallFrame frame) {
-    if (walked.meaningfulKey == 'CanvasKit Wasm (collapsed)' ||
-        walked.meaningfulKey.contains('.')) {
-      return walked.meaningfulKey;
+  String _bucketKeyForKeyAndUrl(
+    String meaningfulKey,
+    String meaningfulUrl,
+    CallFrame frame,
+  ) {
+    if (meaningfulKey == 'CanvasKit Wasm (collapsed)' ||
+        meaningfulKey.contains('.')) {
+      return meaningfulKey;
     }
     if (frame.wasmFunctionIndex != null) {
       return 'wasm:${frame.wasmFunctionIndex}';
     }
-    return '${walked.meaningfulUrl}#${walked.meaningfulKey}';
+    return '$meaningfulUrl#$meaningfulKey';
   }
 
   _StackWalkResult _walkCallStack(int leafNodeId) {
@@ -302,7 +369,9 @@ class _ProfileSampleAggregator {
     var meaningfulKey = '';
     var meaningfulUrl = '';
     final stackNames = <String>[];
+    final meaningfulStack = <({String key, String bucketKey})>[];
     String? targetUrl;
+    var sawEngineWasm = false;
 
     while (currentNodeId != null) {
       final node = nodeMap[currentNodeId];
@@ -319,15 +388,34 @@ class _ProfileSampleAggregator {
         meaningfulNode = node;
         meaningfulKey = 'CanvasKit Wasm (collapsed)';
         meaningfulUrl = url;
-      } else if (meaningfulNode == null &&
-          !_isInternalOrInterop(node) &&
-          key.isNotEmpty) {
-        meaningfulNode = node;
-        meaningfulKey = key;
-        meaningfulUrl = url;
+        sawEngineWasm = true;
+      } else if (!_isInternalOrInterop(node) && key.isNotEmpty) {
+        if (meaningfulNode == null) {
+          meaningfulNode = node;
+          meaningfulKey = key;
+          meaningfulUrl = url;
+        }
+        if (!sawEngineWasm) {
+          final entryBucket = _bucketKeyForKeyAndUrl(key, url, frame);
+          if (meaningfulStack.isEmpty ||
+              meaningfulStack.last.bucketKey != entryBucket) {
+            meaningfulStack.add((key: key, bucketKey: entryBucket));
+          }
+        }
       }
 
       currentNodeId = parentMap[currentNodeId];
+    }
+
+    if (sawEngineWasm && meaningfulNode != null) {
+      final engineBucket = _bucketKeyForKeyAndUrl(
+        meaningfulKey,
+        meaningfulUrl,
+        meaningfulNode.callFrame,
+      );
+      meaningfulStack
+        ..clear()
+        ..add((key: meaningfulKey, bucketKey: engineBucket));
     }
 
     return _StackWalkResult(
@@ -335,6 +423,7 @@ class _ProfileSampleAggregator {
       meaningfulKey: meaningfulKey,
       meaningfulUrl: meaningfulUrl,
       stackNames: stackNames,
+      meaningfulStack: meaningfulStack,
       targetUrl: targetUrl,
     );
   }
@@ -406,6 +495,7 @@ class _ProfileSampleAggregator {
     final bucketKey = entry.key;
     final name = functionNames[bucketKey] ?? bucketKey;
     final samplesCount = entry.value;
+    final inclusiveCount = inclusiveFunctionCounts[bucketKey] ?? samplesCount;
     final dominantLocation = _dominantKey(functionLocationCounts[bucketKey]);
     var dominantPhase =
         _dominantKey(functionPhaseCounts[bucketKey]) ??
@@ -417,11 +507,35 @@ class _ProfileSampleAggregator {
           : PerformanceCategory.jsScripting;
     }
 
+    final callersMap = functionCallerCounts[bucketKey];
+    final topCallers = <HotFunctionCaller>[];
+    if (callersMap != null && callersMap.isNotEmpty) {
+      final sortedCallers = callersMap.entries.toList()
+        ..sort((a, b) => b.value.compareTo(a.value));
+      for (var i = 0; i < 3 && i < sortedCallers.length; i++) {
+        final callerEntry = sortedCallers[i];
+        topCallers.add(
+          HotFunctionCaller(
+            name: callerEntry.key,
+            samples: callerEntry.value,
+            percent: samplesCount > 0
+                ? (callerEntry.value / samplesCount) * 100
+                : 0.0,
+          ),
+        );
+      }
+    }
+
     return HotFunction(
       name: name,
       url: dominantLocation?.$1 ?? '',
       samples: samplesCount,
       percent: totalSamples > 0 ? (samplesCount / totalSamples) * 100 : 0.0,
+      inclusiveSamples: inclusiveCount,
+      inclusivePercent: totalSamples > 0
+          ? (inclusiveCount / totalSamples) * 100
+          : 0.0,
+      topCallers: topCallers,
       category: dominantPhase,
       lineNumber: dominantLocation?.$2,
       columnNumber: null,
@@ -440,6 +554,7 @@ class _StackWalkResult {
   final String meaningfulKey;
   final String meaningfulUrl;
   final List<String> stackNames;
+  final List<({String key, String bucketKey})> meaningfulStack;
   final String? targetUrl;
 
   _StackWalkResult({
@@ -447,6 +562,7 @@ class _StackWalkResult {
     required this.meaningfulKey,
     required this.meaningfulUrl,
     required this.stackNames,
+    required this.meaningfulStack,
     required this.targetUrl,
   });
 }
