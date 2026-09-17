@@ -99,7 +99,7 @@ class ChromeController {
     final payload = json.encode({
       'id': id,
       'method': method,
-      if (params != null) 'params': params,
+      'params': ?params,
     });
     await _connection?.sendCommand('Target.sendMessageToTarget', {
       'sessionId': sessionId,
@@ -360,11 +360,7 @@ class ChromeController {
       final children = (wNode['children'] as List?)
           ?.map((c) => (c as int) + idOffset)
           .toList();
-      targetNodes.add({
-        ...wNode,
-        'id': newId,
-        if (children != null) 'children': children,
-      });
+      targetNodes.add({...wNode, 'id': newId, 'children': ?children});
     }
 
     if (targetNodes.isNotEmpty && workerRootOffsetId != null) {
