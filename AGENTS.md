@@ -81,6 +81,44 @@ When `--analyze-hotspot <rank>` is passed on a `wasm` target:
   python3 -m http.server 8899 --directory out/run_1
   ```
 
+### Step 4: Benchmarking Local `pkg/dart2wasm` Changes (`~15s` AOT Snapshot Fast Path)
+
+When testing local `pkg/dart2wasm` or `pkg/wasm_builder` changes from a
+`~/github/dart-sdk` worktree against a Flutter app with `flutter_web_perf`:
+
+- **Do NOT copy `out/ReleaseX64/dart2wasm.snapshot` or `dartaotruntime` into
+  `~/github/flutter/bin/cache/dart-sdk/`**:
+  - `ninja -C out/ReleaseX64 dart2wasm` embeds `-Dsdk_hash=<worktree-hash>` into
+    the snapshot, whereas `flutter build web --wasm` loads
+    `~/github/flutter/bin/cache/flutter_web_sdk/kernel/dart2wasm_platform.dill`
+    (built at Flutter's pinned `dart_revision`). CFE's `verifySdkHash` throws
+    `InvalidKernelSdkVersionError` during `_runCfePhase`, and replacing
+    `dartaotruntime` breaks `frontend_server_aot.dart.snapshot`.
+- **The 15-Second AOT Snapshot Swap (No Engine/Web SDK Rebuild Needed)**:
+  1. As long as `Tag.BinaryFormatVersion` (`pkg/kernel/lib/binary/tag.dart`)
+     matches Flutter's pinned Dart revision, compile
+     `pkg/dart2wasm/bin/dart2wasm.dart` using **Flutter's own cached `dart`
+     binary** without `-Dsdk_hash` (which defaults `sdk_hash` to the
+     `'0000000000'` wildcard and matches Flutter's `dartaotruntime` ABI):
+     ```bash
+     ~/github/flutter/bin/cache/dart-sdk/bin/dart compile aot-snapshot \
+       /path/to/dart-sdk/pkg/dart2wasm/bin/dart2wasm.dart \
+       -o /tmp/dart2wasm_custom.snapshot
+     ```
+  2. Temporarily swap `/tmp/dart2wasm_custom.snapshot` into
+     `dart2wasm_product.snapshot` with an `EXIT` trap so the original compiler
+     snapshot is always restored after `flutter_web_perf` finishes:
+     ```bash
+     set -e
+     FLUTTER_DART_SDK="$HOME/github/flutter/bin/cache/dart-sdk"
+     BACKUP_SNAP="/tmp/dart2wasm_product.snapshot.bak.$$"
+     cp -p "$FLUTTER_DART_SDK/bin/snapshots/dart2wasm_product.snapshot" "$BACKUP_SNAP"
+     trap 'cp -p "$BACKUP_SNAP" "$FLUTTER_DART_SDK/bin/snapshots/dart2wasm_product.snapshot"; rm -f "$BACKUP_SNAP"' EXIT
+
+     cp /tmp/dart2wasm_custom.snapshot "$FLUTTER_DART_SDK/bin/snapshots/dart2wasm_product.snapshot"
+     dart bin/flutter_web_perf.dart -t wasm -d /path/to/flutter_app -q "mode=skwasm&stress=heavy" -o out/after_patch --analyze-hotspot 1
+     ```
+
 ---
 
 ## Tool Architecture & Symbolication Invariants
