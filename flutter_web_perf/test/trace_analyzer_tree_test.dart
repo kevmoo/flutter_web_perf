@@ -154,6 +154,84 @@ void main() {
       expect(hotFunctions.length, 1);
       expect(hotFunctions[0].name, 'usefulFunc');
       expect(hotFunctions[0].samples, 2);
+      expect(hotFunctions[0].inclusiveSamples, 2);
+    });
+
+    test('computes inclusiveSamples and topCallers across call stacks', () {
+      final profile = CpuProfile(
+        nodes: [
+          CpuProfileNode(
+            id: 1,
+            callFrame: CallFrame(functionName: '(root)', url: ''),
+            children: [2],
+          ),
+          CpuProfileNode(
+            id: 2,
+            callFrame: CallFrame(
+              functionName: 'ComponentElement.performRebuild',
+              url: 'package:flutter/framework.dart',
+            ),
+            children: [3, 4],
+          ),
+          CpuProfileNode(
+            id: 3,
+            callFrame: CallFrame(
+              functionName: 'MyWidget.build',
+              url: 'package:app/my_widget.dart',
+            ),
+            children: [5],
+          ),
+          CpuProfileNode(
+            id: 4,
+            callFrame: CallFrame(
+              functionName: 'OtherWidget.build',
+              url: 'package:app/other_widget.dart',
+            ),
+            children: [6],
+          ),
+          CpuProfileNode(
+            id: 5,
+            callFrame: CallFrame(
+              functionName: 'Element.dependOnInheritedElement',
+              url: 'package:flutter/framework.dart',
+            ),
+            children: [],
+          ),
+          CpuProfileNode(
+            id: 6,
+            callFrame: CallFrame(
+              functionName: 'Element.dependOnInheritedElement',
+              url: 'package:flutter/framework.dart',
+            ),
+            children: [],
+          ),
+        ],
+        samples: [
+          // 2 direct samples in ComponentElement.performRebuild
+          2, 2,
+          // 5 samples in Element.dependOnInheritedElement via MyWidget.build
+          5, 5, 5, 5, 5,
+          // 1 sample in Element.dependOnInheritedElement via OtherWidget.build
+          6,
+        ],
+      );
+
+      final hotFunctions = analyzer.processProfile(profile);
+      expect(hotFunctions.first.name, 'Element.dependOnInheritedElement');
+      expect(hotFunctions.first.samples, 6);
+      expect(hotFunctions.first.inclusiveSamples, 6);
+      expect(hotFunctions.first.topCallers.length, 2);
+      expect(hotFunctions.first.topCallers.first.name, 'MyWidget.build');
+      expect(hotFunctions.first.topCallers.first.samples, 5);
+      expect(hotFunctions.first.topCallers[1].name, 'OtherWidget.build');
+      expect(hotFunctions.first.topCallers[1].samples, 1);
+
+      final performRebuild = hotFunctions.firstWhere(
+        (f) => f.name == 'ComponentElement.performRebuild',
+      );
+      expect(performRebuild.samples, 2);
+      // 2 direct + 6 transitive via MyWidget.build -> dependOnInheritedElement
+      expect(performRebuild.inclusiveSamples, 8);
     });
   });
 }

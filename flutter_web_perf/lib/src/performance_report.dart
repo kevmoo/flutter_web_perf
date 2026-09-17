@@ -15,18 +15,21 @@ enum PerformanceCategory {
   ),
   flutterLayout(
     label: 'Flutter Layout',
-    sqlPatterns: ['LAYOUT', 'Layout', 'LAYOUT%', 'RenderObject.performLayout%'],
+    sqlPatterns: ['LAYOUT', 'RenderObject.performLayout%'],
   ),
   flutterPaint(
     label: 'Flutter Paint',
-    sqlPatterns: ['PAINT', 'Paint', 'PAINT%', 'RenderObject.paint%'],
+    sqlPatterns: ['PAINT', 'RenderObject.paint%'],
   ),
   flutterCompositing(
     label: 'Flutter Compositing',
-    sqlPatterns: ['COMPOSITING'],
+    sqlPatterns: ['COMPOSITING', 'UPDATING COMPOSITING BITS'],
   ),
   flutterSemantics(label: 'Flutter Semantics', sqlPatterns: ['Semantics']),
-  engineRaster(label: 'Engine Raster', sqlPatterns: ['Raster%']),
+  engineRaster(
+    label: 'Engine Raster',
+    sqlPatterns: ['Raster%', 'GPURasterizer%', 'Skwasm%'],
+  ),
   jsScripting(label: 'JS Scripting', sqlPatterns: ['%Script::Execute%']),
   browserRendering(label: 'Browser Rendering', sqlPatterns: ['%Render%']),
   gc(label: 'GC', sqlPatterns: ['%GC%', '%gc%']),
@@ -123,11 +126,26 @@ class WasmAnalysis {
   });
 }
 
+class HotFunctionCaller {
+  final String name;
+  final int samples;
+  final double percent;
+
+  const HotFunctionCaller({
+    required this.name,
+    required this.samples,
+    required this.percent,
+  });
+}
+
 class HotFunction {
   String name;
   final String url;
   final int samples;
   final double percent;
+  final int inclusiveSamples;
+  final double inclusivePercent;
+  final List<HotFunctionCaller> topCallers;
   final PerformanceCategory category;
   final int? lineNumber;
   final int? columnNumber;
@@ -144,6 +162,9 @@ class HotFunction {
     required this.url,
     required this.samples,
     required this.percent,
+    this.inclusiveSamples = 0,
+    this.inclusivePercent = 0.0,
+    this.topCallers = const [],
     required this.category,
     this.lineNumber,
     this.columnNumber,

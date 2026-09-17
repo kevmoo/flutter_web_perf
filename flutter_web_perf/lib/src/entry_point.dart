@@ -331,8 +331,12 @@ class _AppRunner {
     print('Processed Frames: ${report.frameHealth.processedCount}');
 
     print('\n=== Time Breakdown ===');
+    final processed = report.frameHealth.processedCount;
     report.timeBreakdown.forEach((cat, dur) {
-      print('${cat.label}: ${dur.toStringAsFixed(2)} ms');
+      final perFrameSuffix = processed > 0
+          ? ' (${(dur / processed).toStringAsFixed(2)} ms/frame)'
+          : '';
+      print('${cat.label}: ${dur.toStringAsFixed(2)} ms$perFrameSuffix');
     });
   }
 
@@ -377,7 +381,21 @@ class _AppRunner {
       final wasmLabel = f.wasmFunctionIndex != null
           ? ' (Wasm Index: ${f.wasmFunctionIndex})'
           : '';
-      print('${i + 1}. ${f.name}$wasmLabel: ${f.samples} samples');
+      final inclusiveLabel = f.inclusiveSamples > f.samples
+          ? ' (inclusive: ${f.inclusiveSamples} samples / ${f.inclusivePercent.toStringAsFixed(1)}%)'
+          : '';
+      print(
+        '${i + 1}. ${f.name}$wasmLabel: ${f.samples} samples$inclusiveLabel',
+      );
+      if (f.topCallers.isNotEmpty) {
+        final callersSummary = f.topCallers
+            .map(
+              (c) =>
+                  '${c.name} (${c.samples} samples / ${c.percent.toStringAsFixed(0)}%)',
+            )
+            .join(', ');
+        print('    ↳ Top Callers: $callersSummary');
+      }
 
       if (resolved != null) {
         _printSourceSnippet(
