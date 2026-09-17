@@ -202,7 +202,9 @@ class TraceAnalyzer {
         .map((c) {
           final cond = c.sqlPatterns.map(patternToSql).join(' OR ');
           if (c == PerformanceCategory.engineRaster) {
-            return "          WHEN ($cond) OR (t.name = 'DedicatedWorker thread' AND s.depth = 0) THEN '${c.label}'";
+            return '          WHEN ($cond) OR '
+                "(t.name = 'DedicatedWorker thread' AND s.depth = 0) "
+                "THEN '${c.label}'";
           }
           return "          WHEN $cond THEN '${c.label}'";
         })
