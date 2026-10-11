@@ -366,7 +366,6 @@ class _ProfileSampleAggregator {
   }
 
   _StackWalkResult _walkCallStack(int leafNodeId) {
-    int? currentNodeId = leafNodeId;
     CpuProfileNode? meaningfulNode;
     var meaningfulKey = '';
     var meaningfulUrl = '';
@@ -375,10 +374,11 @@ class _ProfileSampleAggregator {
     String? targetUrl;
     var sawEngineWasm = false;
 
-    while (currentNodeId != null) {
-      final node = nodeMap[currentNodeId];
-      if (node == null) break;
-
+    for (
+      var node = nodeMap[leafNodeId];
+      node != null;
+      node = nodeMap[parentMap[node.id]]
+    ) {
       final frame = node.callFrame;
       final key = frame.functionName;
       final url = normalizeLocation(frame.url);
@@ -391,22 +391,20 @@ class _ProfileSampleAggregator {
         meaningfulKey = 'CanvasKit Wasm (collapsed)';
         meaningfulUrl = url;
         sawEngineWasm = true;
-      } else if (!_isInternalOrInterop(node) && key.isNotEmpty) {
-        if (meaningfulNode == null) {
-          meaningfulNode = node;
-          meaningfulKey = key;
-          meaningfulUrl = url;
-        }
-        if (!sawEngineWasm) {
-          final entryBucket = _bucketKeyForKeyAndUrl(key, url, frame);
-          if (meaningfulStack.isEmpty ||
-              meaningfulStack.last.bucketKey != entryBucket) {
-            meaningfulStack.add((key: key, bucketKey: entryBucket));
-          }
-        }
+        continue;
       }
-
-      currentNodeId = parentMap[currentNodeId];
+      if (sawEngineWasm || _isInternalOrInterop(node) || key.isEmpty) {
+        continue;
+      }
+      if (meaningfulNode == null) {
+        meaningfulNode = node;
+        meaningfulKey = key;
+        meaningfulUrl = url;
+      }
+      final entryBucket = _bucketKeyForKeyAndUrl(key, url, frame);
+      if (meaningfulStack.lastOrNull?.bucketKey != entryBucket) {
+        meaningfulStack.add((key: key, bucketKey: entryBucket));
+      }
     }
 
     if (sawEngineWasm && meaningfulNode != null) {

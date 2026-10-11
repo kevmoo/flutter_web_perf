@@ -46,37 +46,37 @@ class ChromeController {
 
   void _setupWorkerAutoAttach() {
     _connection?.onNotification.listen((notification) {
-      if (notification.method == 'Target.attachedToTarget') {
-        final params = notification.params ?? const <String, dynamic>{};
-        final sessionId = params['sessionId'] as String?;
-        final targetInfo = params['targetInfo'] as Map<String, dynamic>?;
-        if (sessionId != null && targetInfo?['type'] == 'worker') {
+      switch ((notification.method, notification.params)) {
+        case (
+          'Target.attachedToTarget',
+          {
+            'sessionId': final String sessionId,
+            'targetInfo': {'type': 'worker'},
+          },
+        ):
           _workerSessionIds.add(sessionId);
           if (_isProfiling) {
             unawaited(_startWorkerProfiler(sessionId));
           }
-        }
-      } else if (notification.method == 'Target.detachedFromTarget') {
-        final sessionId = notification.params?['sessionId'] as String?;
-        if (sessionId != null) {
+        case (
+          'Target.detachedFromTarget',
+          {'sessionId': final String sessionId},
+        ):
           _workerSessionIds.remove(sessionId);
-        }
-      } else if (notification.method == 'Target.receivedMessageFromTarget') {
-        final messageStr = notification.params?['message'] as String?;
-        if (messageStr != null) {
+        case (
+          'Target.receivedMessageFromTarget',
+          {'message': final String messageStr},
+        ):
           try {
             final msg = json.decode(messageStr) as Map<String, dynamic>;
             final id = msg['id'] as int?;
-            if (id != null && _workerPendingCommands.containsKey(id)) {
-              _workerPendingCommands
-                  .remove(id)!
-                  .complete(
-                    (msg['result'] as Map<String, dynamic>?) ??
-                        const <String, dynamic>{},
-                  );
-            }
+            _workerPendingCommands
+                .remove(id)
+                ?.complete(
+                  (msg['result'] as Map<String, dynamic>?) ??
+                      const <String, dynamic>{},
+                );
           } catch (_) {}
-        }
       }
     });
     unawaited(
